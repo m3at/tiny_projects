@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Readable Content Viewer</title>
+    <!-- https://github.com/mozilla/readability/raw/main/Readability.js -->
+    <!-- <script src="/static/Readability.js"></script> -->
+</head>
+<body>
+    <input type="text" id="urlInput" placeholder="Enter URL here">
+    <button onclick="loadAndDisplay()">Load Content</button>
+    <div id="content" style="margin-top: 20px;"></div>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+}
+#content {
+    max-width: 800px; /* Maximum width for comfortable reading */
+    margin: 0 auto; /* Center the content */
+    padding: 20px;
+}
+#content a { /* Style for hyperlinks */
+    color: inherit; /* Remove the default blue color */
+    text-decoration: underline; /* Keep them underlined */
+}
+#content blockquote { /* Style for block quotes */
+    border-left: 4px solid #ccc; /* Dim vertical bar */
+    padding-left: 20px;
+    margin-left: 0;
+    color: #666; /* Optional: Dim the text color */
+}
+</style>
+
+    <script>
+
+async function loadAndDisplay() {
+    const url = document.getElementById('urlInput').value;
+    try {
+        const response = await fetch(`/fetch-content/?url=${encodeURIComponent(url)}`);
+        const html = await response.text();
+
+        document.getElementById('content').innerHTML = html;
+
+        // // Create a new DOM from the fetched HTML string
+        // const parser = new DOMParser();
+        // const doc = parser.parseFromString(html, 'text/html');
+        //
+        // // Apply Readability
+        // var article = new Readability(doc).parse();
+
+        // Display the cleaned article content
+        // document.getElementById('content').innerHTML = `
+        //     <h1>${article.title}</h1>
+        //     <div>${article.content}</div>
+        // `;
+    } catch (error) {
+        console.error('Error:', error);
+        document.getElementById('content').textContent = 'Failed to load content.';
+    }
+}
+
+
+    </script>
+</body>
+</html>
+
