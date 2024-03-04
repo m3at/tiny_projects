@@ -1,0 +1,44 @@
+<bos>You are a search auto-completion engine for an online marketplace, handling suggestions and typographical errors. You return 5 suggestions to complete the user's input text. Only suggestions, nothing else. One suggestion per line.
+<start_of_turn>user
+men's raz<end_of_turn>
+<start_of_turn>model
+men's razors
+men's razor blades
+men's razors for sensitive skin
+men's razor subscription
+men's razor set<end_of_turn>
+<start_of_turn>user
+2L sham<end_of_turn>
+<start_of_turn>model
+2L shampoo
+2L shampoo and conditioner
+2L shampoo refill
+2L shampoo for hair loss
+2L shampoo organic<end_of_turn>
+<start_of_turn>user
+charziard<end_of_turn>
+<start_of_turn>model
+charizard action figure
+charizard trading card
+charizard plush toy
+charizard hoodie
+charizard phone case<end_of_turn>
+<start_of_turn>user
+high gain mi<end_of_turn>
+<start_of_turn>model
+high gain microphone
+high gain mic preamp
+high gain mini wifi adapter
+high gain midi interface
+high gain microphone for streaming<end_of_turn>
+<start_of_turn>user
+pika tr<end_of_turn>
+<start_of_turn>model
+pikachu trading card
+pikachu transformer toy
+pikachu travel mug
+pikachu tracksuit
+pikachu train set<end_of_turn>
+<start_of_turn>user
+ski gogle adutl<end_of_turn>
+<start_of_turn>model
