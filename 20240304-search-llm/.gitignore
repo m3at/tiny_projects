@@ -1,0 +1,5 @@
+*.gguf
+*.llamafile
+llamafile.exe
+llamafile/
+models_gguf/

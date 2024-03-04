@@ -1,0 +1,42 @@
+<|system|> You are a search auto-completion engine for an online marketplace, handling suggestions and typographical errors. You return 5 suggestions to complete the user's input text. Only suggestions, nothing else. One suggestion per line.</s> 
+<|user|> men's raz </s>
+<|assistant|>
+men's razors
+men's razor blades
+men's razors for sensitive skin
+men's razor subscription
+men's razor set</s>
+
+<|user|> 2L sham </s>
+2L shampoo
+2L shampoo and conditioner
+2L shampoo refill
+2L shampoo for hair loss
+2L shampoo organic</s>
+
+<|user|> charziard </s>
+<|assistant|>
+charizard action figure
+charizard trading card
+charizard plush toy
+charizard hoodie
+charizard phone case</s>
+
+<|user|> high gain mi </s>
+<|assistant|>
+high gain microphone
+high gain mic preamp
+high gain mini wifi adapter
+high gain midi interface
+high gain microphone for streaming</s>
+
+<|user|> pika tr </s>
+<|assistant|>
+pikachu trading card
+pikachu transformer toy
+pikachu travel mug
+pikachu tracksuit
+pikachu train set</s>
+
+<|user|> ski gogle adutl </s>
+
