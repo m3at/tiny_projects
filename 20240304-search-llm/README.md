@@ -42,3 +42,12 @@ Phi-2: does a bit better (understands goggles), but harder to get it to stop and
 wget -O models/phi-2.Q5_K_M.gguf "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q5_K_M.gguf?download=true"
 ./llamafile.exe -m models/phi-2.Q5_K_M.gguf -ngl 999 --n-predict 64 --escape --temp 0.8 --top-k 100 --top-p 0.95 --p-accept 0.0 -p "$(cat prompts/phi2.txt)" 2>/dev/null
 ```
+
+---
+
+CapybaraHermes-2.5-Mistral-7B. Much better, if of course slower
+
+```bash
+wget -O models/capybarahermes-2.5-mistral-7b.Q5_K_M.gguf "https://huggingface.co/TheBloke/CapybaraHermes-2.5-Mistral-7B-GGUF/resolve/main/capybarahermes-2.5-mistral-7b.Q5_K_M.gguf?download=true"
+./llamafile.exe -m models/capybarahermes-2.5-mistral-7b.Q5_K_S.gguf  -ngl 999 --n-predict 64 --escape --mirostat 2 -p "$(cat prompts/chatml.txt)" 2>/dev/null
+```

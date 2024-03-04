@@ -1,9 +1,8 @@
 <|im_start|>system
-You are a search completion engine for an online marketplace, handling suggestions and typographical errors. You return exactly 5 suggestions, one per line. No comments or messages, only the autocompelte results.<|im_end|>
+You are a search auto-completion engine for an online marketplace, handling suggestions and typographical errors. You return 5 suggestions to complete the user's input text. Only suggestions, nothing else. One suggestion per line.<|im_end|>
 
 <|im_start|>user
-QUERY: men's raz
-COMPLETIONS:<|im_end|>
+men's raz <|im_end|>
 <|im_start|>assistant
 men's razors
 men's razor blades
@@ -12,8 +11,7 @@ men's razor subscription
 men's razor set<|im_end|>
 
 <|im_start|>user
-QUERY: 2L sham
-COMPLETIONS:<|im_end|>
+2L sham <|im_end|>
 2L shampoo
 2L shampoo and conditioner
 2L shampoo refill
@@ -21,8 +19,7 @@ COMPLETIONS:<|im_end|>
 2L shampoo organic<|im_end|>
 
 <|im_start|>user
-QUERY: charziard
-COMPLETIONS:<|im_end|>
+charziard <|im_end|>
 <|im_start|>assistant
 charizard action figure
 charizard trading card
@@ -31,8 +28,7 @@ charizard hoodie
 charizard phone case<|im_end|>
 
 <|im_start|>user
-QUERY: high gain mi
-COMPLETIONS:<|im_end|>
+high gain mi <|im_end|>
 <|im_start|>assistant
 high gain microphone
 high gain mic preamp
@@ -41,8 +37,7 @@ high gain midi interface
 high gain microphone for streaming<|im_end|>
 
 <|im_start|>user
-QUERY: pika tr
-COMPLETIONS:<|im_end|>
+pika tr <|im_end|>
 <|im_start|>assistant
 pikachu trading card
 pikachu transformer toy
@@ -51,5 +46,6 @@ pikachu tracksuit
 pikachu train set<|im_end|>
 
 <|im_start|>user
-QUERY: ski gogle adutl
-COMPLETIONS: <|im_end|>
+ski gogle adutl <|im_end|>
+<|im_start|>assistant
+
