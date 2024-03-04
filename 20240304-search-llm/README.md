@@ -11,7 +11,7 @@ To run ggml/gguf models with llamafile:
 # 32Mb
 curl -L -o llamafile.exe https://github.com/Mozilla-Ocho/llamafile/releases/download/0.6.2/llamafile-0.6.2
 chmod +x llamafile.exe
-mkdir -p llamafile models_gguf
+mkdir -p llamafile models
 ```
 
 ---
@@ -26,10 +26,19 @@ curl -L -o llamafile/tinyllama.llamafile "https://huggingface.co/jartine/TinyLla
 
 Attempt at query completion (the format seems right, but not sure), best parames after a quick manual exploration and eyeballing the results:
 ```bash
-## TinyLlama
-./llamafile/tinyllama.llamafile -ngl 9999 --n-predict 64 --no-display-prompt --escape --temp 0.6 --top-k 100 --top-p 0.7 --p-accept 0.0 -p "'$(cat prompts/prompt_tinyllama.txt)'" 2>/dev/null
+# Note the twice escaped prompt, seems necessary
+./llamafile/tinyllama.llamafile -ngl 9999 --n-predict 64 --no-display-prompt --escape --temp 0.6 --top-k 100 --top-p 0.7 --p-accept 0.0 -p "'$(cat prompts/tinyllama.txt)'" 2>/dev/null
 ```
 
 Results: get the task with examples, but not great, for example for "ski gogle adutl" it rarely gets "ski goggles adult" and instead often ignore ski and does "ski google ads". When it gets "goggle", the rest is better. Might be solved with better prompts?
 
 **TODO**: loop with an other model to tune the generation parameter :D
+
+---
+
+Phi-2: does a bit better (understands goggles), but harder to get it to stop and just give the completions. The ChatML format does help for this. Adding an explicit end word like "END" should at least help parsing.
+
+```bash
+wget -O models/phi-2.Q5_K_M.gguf "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q5_K_M.gguf?download=true"
+./llamafile.exe -m models/phi-2.Q5_K_M.gguf -ngl 999 --n-predict 64 --escape --temp 0.8 --top-k 100 --top-p 0.95 --p-accept 0.0 -p "$(cat prompts/phi2.txt)" 2>/dev/null
+```
