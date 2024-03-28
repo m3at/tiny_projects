@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Scheduler</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .task { margin-bottom: 10px; }
+        .NEW { color: blue; }
+        .PENDING { color: orange; }
+        .STARTED { color: green; }
+        .SUCCESS { color: gray; }
+    </style>
+</head>
+<body>
+    <h2>Schedule Task</h2>
+    <input type="text" id="name" placeholder="Name">
+    <input type="number" id="value" placeholder="Value">
+    <button onclick="scheduleTask()">Schedule</button>
+
+    <h2>Tasks</h2>
+    <p>Running with 3 parallel "workers" with random 1-10s delay</p>
+    <p>Pending/Running tasks: <span id="runningCount">0</span></p>
+    <p>Completed tasks: <span id="completedCount">0</span></p>
+    <div id="tasks"></div>
+
+    <script>
+        const apiUrl = 'http://127.0.0.1:8000';
+        let tasks = [];
+
+        async function fetchInitialTasks() {
+            const response = await fetch(`${apiUrl}/tasks/running`);
+            const runningTasks = await response.json();
+
+            const completedResponse = await fetch(`${apiUrl}/tasks/completed`);
+            const completedTasks = await completedResponse.json();
+
+            tasks = [...runningTasks, ...completedTasks];
+            displayTasks();
+            updateCounts();
+            refreshRunningTasksStatus();
+        }
+
+        function updateCounts() {
+            const runningCount = tasks.filter(task => task.status !== "SUCCESS").length;
+            const completedCount = tasks.filter(task => task.status === "SUCCESS").length;
+            document.getElementById('runningCount').textContent = runningCount;
+            document.getElementById('completedCount').textContent = completedCount;
+        }
+
+        function displayTasks() {
+            const tasksDiv = document.getElementById('tasks');
+            tasksDiv.innerHTML = '';
+            tasks.forEach(task => {
+                const taskDiv = document.createElement('div');
+                taskDiv.className = 'task ' + task.status;
+                taskDiv.id = `task-${task.task_id}`;
+                taskDiv.textContent = `Name: ${task.name}, Status: ${task.status}`;
+                tasksDiv.appendChild(taskDiv);
+            });
+        }
+
+        async function scheduleTask() {
+            const name = document.getElementById('name').value;
+            const value = document.getElementById('value').value;
+
+            const response = await fetch(`${apiUrl}/task/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name, value })
+            });
+            const data = await response.json();
+
+            tasks.push({ task_id: data.task_id, name, status: "NEW" });
+            displayTasks();
+            updateCounts();
+            refreshTaskStatus(data.task_id);
+        }
+
+        async function refreshRunningTasksStatus() {
+            tasks.filter(task => task.status !== "SUCCESS").forEach(task => {
+                refreshTaskStatus(task.task_id);
+            });
+        }
+
+        async function refreshTaskStatus(taskId) {
+            const response = await fetch(`${apiUrl}/task/${taskId}`);
+            const data = await response.json();
+            const taskIndex = tasks.findIndex(t => t.task_id === taskId);
+            if (taskIndex !== -1) {
+                tasks[taskIndex].status = data.status;
+                if (data.result && data.result.status === "completed") {
+                    tasks[taskIndex].result = data.result;
+                }
+                displayTasks();
+                updateCounts();
+            }
+
+            if (tasks[taskIndex] && tasks[taskIndex].status !== "SUCCESS") {
+                // the delay is in milliseconds, so we're trying to update every 0.5s
+                setTimeout(() => refreshTaskStatus(taskId), 500);
+            }
+        }
+
+        fetchInitialTasks();
+    </script>
+</body>
+</html>
+
