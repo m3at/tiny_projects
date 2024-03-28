@@ -42,3 +42,7 @@ litestream replicate test.db sftp://USER:PASSWORD@HOST.rsync.net:PORT/PATH
 
 ### Demo
 
+The `pending/running` state is a bit messed-up, ignore that
+
+https://github.com/m3at/tiny_projects/assets/3440771/79c54bc7-e47c-4d2e-9636-276b20a416cc
+
