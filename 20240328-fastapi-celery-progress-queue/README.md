@@ -5,8 +5,10 @@ Setup:
 ```bash
 # RabbitMQ in Docker
 docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3.13-management
+# Redis 
+docker run -p 6379:6379  redis:7.2.4-bookworm
 # Python deps
-pip install sqlalchemy "pydantic[email]" uvicorn celery fastapi
+pip install sqlalchemy "pydantic[email]" uvicorn celery fastapi "redis[hiredis]"
 # FastAPI
 uvicorn main:app --reload
 # Workers
@@ -45,4 +47,5 @@ litestream replicate test.db sftp://USER:PASSWORD@HOST.rsync.net:PORT/PATH
 The `pending/running` state is a bit messed-up, ignore that
 
 https://github.com/m3at/tiny_projects/assets/3440771/79c54bc7-e47c-4d2e-9636-276b20a416cc
+
 
