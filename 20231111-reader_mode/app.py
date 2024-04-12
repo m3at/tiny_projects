@@ -11,6 +11,7 @@ import re
 # from html_sanitizer import Sanitizer
 # pip install nh3
 import nh3
+
 # pip install readability-lxml
 from readability import Document
 
@@ -31,28 +32,49 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
 @app.get("/", response_class=HTMLResponse)
 async def read_item():
-    html_content = Path('index.html').read_text()
+    html_content = Path("index.html").read_text()
     return HTMLResponse(content=html_content)
-
 
 
 def is_relevant_image(tag):
     # Add additional heuristics for image relevance here
-    if tag.get("width") and int(tag.get("width")) < 100 or tag.get("height") and int(tag.get("height")) < 100:
+    if (
+        tag.get("width")
+        and int(tag.get("width")) < 100
+        or tag.get("height")
+        and int(tag.get("height")) < 100
+    ):
         return False
     return True
 
 
 def simplify_html(soup):
-    body = soup.find('body')
+    body = soup.find("body")
     if not body:
         body = soup
 
     for tag in body.find_all(True):
         # Remove all attributes except for a few tags
-        if tag.name not in ["a", "em", "strong", "u", "s", "blockquote", "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6"]:
+        if tag.name not in [
+            "a",
+            "em",
+            "strong",
+            "u",
+            "s",
+            "blockquote",
+            "ul",
+            "ol",
+            "li",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+        ]:
             tag.attrs = {}
         if tag.name == "a":
             tag.attrs = {"href": tag.get("href")}
@@ -65,14 +87,13 @@ def simplify_html(soup):
     # normalize_unicode(body)
 
 
-
 def clean_html(html_content):
-    soup = BeautifulSoup(html_content, 'html.parser')
+    soup = BeautifulSoup(html_content, "html.parser")
 
     simplify_html(soup)
 
     # Remove script and style elements
-    for script_or_style in soup(['script', 'style']):
+    for script_or_style in soup(["script", "style"]):
         script_or_style.decompose()
 
     # Remove comment elements
@@ -80,6 +101,7 @@ def clean_html(html_content):
         comment.extract()
 
     return str(soup)
+
 
 @app.get("/fetch-content/")
 async def fetch_content(url: str):

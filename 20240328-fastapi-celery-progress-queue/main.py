@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import redis
 from celery import Celery
@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker, Session
 Base = declarative_base()
 
 # Connect to Redis
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_client = redis.Redis(host="localhost", port=6379, db=0)
 
 
 class TaskModel(Base):
@@ -79,15 +79,19 @@ def get_task(task_id: str, db: Session = Depends(get_db)):
     if not task_status:
         # raise HTTPException(status_code=404, detail="Task not found")
         return {"status": "unknown", "progress": 0, "result": "N/A"}
-    
+
     # Update the database status based on Redis (optional, depending on your architecture)
     db_task = db.query(TaskModel).filter(TaskModel.id == task_id).first()
     if db_task:
-        db_task.status = task_status[b'status'].decode("utf-8")
-        db_task.result = task_status.get(b'result', b'').decode("utf-8")
+        db_task.status = task_status[b"status"].decode("utf-8")
+        db_task.result = task_status.get(b"result", b"").decode("utf-8")
         db.commit()
 
-    return {"status": task_status[b'status'].decode("utf-8"), "progress": int(task_status[b'progress']), "result": task_status.get(b'result', b'').decode("utf-8")}
+    return {
+        "status": task_status[b"status"].decode("utf-8"),
+        "progress": int(task_status[b"progress"]),
+        "result": task_status.get(b"result", b"").decode("utf-8"),
+    }
 
 
 @app.get("/tasks/running")
