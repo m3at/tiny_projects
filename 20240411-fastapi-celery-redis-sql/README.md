@@ -67,3 +67,7 @@ litestream replicate test.db sftp://USER:PASSWORD@HOST.rsync.net:PORT/PATH
 
 ### Demo
 
+Example with basic task priority:
+
+https://github.com/m3at/tiny_projects/assets/3440771/f94ac944-7113-40ef-99b2-00d324829c81
+
