@@ -41,7 +41,7 @@ celery --broker=amqp://guest:guest@localhost:5672// flower
 Test:
 ```bash
 # Schedule a task
-TASK_ID=$(curl --silent -X 'POST' 'http://127.0.0.1:8000/task/' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{ "name": "TestTask", "value": 123.45 }' | jq '.task_id')
+TASK_ID=$(curl --silent -X 'POST' 'http://127.0.0.1:8000/task/' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{ "name": "TestTask" }' | jq '.task_id')
 # Check the status of one task
 curl -X 'GET' -H 'accept: application/json' "http://127.0.0.1:8000/task/$TASK_ID"
 # Get all running tasks

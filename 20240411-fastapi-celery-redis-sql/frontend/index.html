@@ -8,21 +8,32 @@
         body { font-family: Arial, sans-serif; margin: 20px; }
         .task { margin-bottom: 10px; }
         .NEW { color: blue; }
-        .PENDING { color: orange; }
-        .STARTED { color: green; }
+        .PENDING { color: red; }
+        .STARTED { color: orange; }
+        .IN_PROGRESS { color: green; }
         .SUCCESS { color: gray; }
     </style>
 </head>
 <body>
     <h2>Schedule Task</h2>
     <input type="text" id="name" placeholder="Name">
-    <!-- <input type="number" id="value" placeholder="Value"> -->
     <button onclick="scheduleTask()">Schedule</button>
+    <label>
+      <input type="checkbox" name="priority" id="is_high_priority">High priority?
+    </label>
+
 
     <h2>Tasks</h2>
-    <p>Running with 3 parallel "workers" with random 1-10s delay</p>
-    <p>Pending/Running tasks: <span id="runningCount">0</span></p>
-    <p>Completed tasks: <span id="completedCount">0</span></p>
+    <p>
+        Running with 3 parallel "workers" with random delays.
+        <br>
+        Workers prefetch 1 task, so the priority only affect subsequently fetched tasks
+    </p>
+    <p>
+        Pending/Running tasks: <span id="runningCount">0</span>
+        <br>
+        Completed tasks: <span id="completedCount">0</span>
+    </p>
     <div id="tasks"></div>
 
     <script>
@@ -56,20 +67,19 @@
                 const taskDiv = document.createElement('div');
                 taskDiv.className = 'task ' + task.status;
                 taskDiv.id = `task-${task.task_id}`;
-                taskDiv.innerHTML = `Name: ${task.name}, Status: ${task.status}, Progress: ${task.progress || 0}%`;
+                taskDiv.innerHTML = `Name: ${task.name}, Status: ${task.status}, Progress: ${Math.round(task.progress * 100) || 0}%`;
                 tasksDiv.appendChild(taskDiv);
             });
         }
 
         async function scheduleTask() {
             const name = document.getElementById('name').value;
-            // const value = document.getElementById('value').value;
+            const is_high_priority = document.getElementById('is_high_priority').checked;
 
             const response = await fetch(`${apiUrl}/task/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                // body: JSON.stringify({ name, value })
-                body: JSON.stringify({ name })
+                body: JSON.stringify({ name, "high_priority": is_high_priority })
             });
             const data = await response.json();
 
@@ -91,16 +101,15 @@
             const taskIndex = tasks.findIndex(t => t.task_id === taskId);
             if (taskIndex !== -1) {
                 tasks[taskIndex].status = data.status;
-                if (data.result && data.result.status === "completed") {
-                    tasks[taskIndex].result = data.result;
-                }
+                tasks[taskIndex].progress = data.progress;
+
                 displayTasks();
                 updateCounts();
             }
 
             if (tasks[taskIndex] && tasks[taskIndex].status !== "SUCCESS") {
-                // the delay is in milliseconds, so we're trying to update every 0.5s
-                setTimeout(() => refreshTaskStatus(taskId), 500);
+                // the delay is in milliseconds, so we're trying to update every 0.2s
+                setTimeout(() => refreshTaskStatus(taskId), 200);
             }
         }
 

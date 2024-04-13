@@ -11,9 +11,15 @@ BROKER = "redis"
 # @singledispatch
 def randsleep(start: int, end: int | None = None):
     if end is None:
-        time.sleep(random.randint(0, start))
-    else:
-        time.sleep(random.randint(start, end))
+        end, start = start, 0
+    time.sleep(random.randint(start, end))
+
+
+def randsleepf(start: float, end: float | None = None):
+    if end is None:
+        end, start = start, 0.0
+    r = random.random() * (end - start)
+    time.sleep(start + r)
 
 
 def get_veggies(*, broker: Literal["rabbitmq", "redis"] = BROKER) -> Celery:
@@ -38,5 +44,11 @@ def get_veggies(*, broker: Literal["rabbitmq", "redis"] = BROKER) -> Celery:
     # https://docs.celeryq.dev/en/stable/userguide/configuration.html#configuration
     app.conf.update(
         timezone="Asia/Tokyo",
+        # TODO: use multiple queues instead? Seems easier, as
+        # this allow an actual "prefetch" of 0 for high priority tasks
+        worker_prefetch_multiplier=1,  # default: 4
+        # Might affect some things for priorities:
+        # https://docs.celeryq.dev/en/stable/faq.html#faq-acks-late-vs-retry
+        # task_acks_late=True,
     )
     return app
