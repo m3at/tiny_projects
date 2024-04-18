@@ -34,8 +34,11 @@ docker run -p 6379:6379 redis:7.2.4-bookworm
 uvicorn backend:app --reload
 # Workers
 celery -A worker worker --loglevel=info --concurrency=3 --pool=threads --purge
-# Optional, Flower for monitoring
-celery --broker=amqp://guest:guest@localhost:5672// flower
+# Or for actuall parallelism, launch multiple processes with:
+# celery -A worker worker --loglevel=info --concurrency=1 --purge
+# Optional, Flower for monitoring. Use the appropriate broker depending on what you picked
+# celery --broker=amqp://guest:guest@localhost:5672// flower
+celery --broker=redis://localhost:6379/0 flower
 ```
 
 Test:
