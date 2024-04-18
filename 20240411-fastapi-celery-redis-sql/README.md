@@ -55,6 +55,7 @@ curl -X 'GET' 'http://127.0.0.1:8000/tasks/completed'
 
 Test with a mock frontend in `./frontend/`:
 ```bash
+cd frontend
 uvicorn serve_frontend:app --reload --port 9090
 # Then open: http://127.0.0.1:9090/
 ```
