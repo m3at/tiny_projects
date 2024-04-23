@@ -1,0 +1,43 @@
+[project]
+requires-python = ">=3.12"
+
+[tool.poetry]
+package-mode = false
+name = "20240508-django-ninja-db-process"
+version = "0.1.0"
+description = ""
+authors = ["Paul Willot <kiwi.pwillot@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+keywords = [
+  "django", "django-ninja", "sql", "sqlite",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+]
+repository = "https://github.com/m3at/tiny_projects/tree/main/20240508-django-ninja-db-process"
+documentation = "https://github.com/m3at/tiny_projects/tree/main/220240508-django-ninja-db-process"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+django = "^5.0.6"
+django-ninja = "^1.1.0"
+django-stubs = "^5.0.0"
+uvicorn = {extras = ["standard"], version = "^0.29.0"}
+gunicorn = "^22.0.0"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.4.3"
+pre-commit = "^3.7.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

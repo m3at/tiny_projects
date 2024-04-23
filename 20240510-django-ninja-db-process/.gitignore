@@ -1,0 +1,3 @@
+poetry.lock
+chousaheidan/db.sqlite3
+chousaheidan/tasks/migrations/0*.py
