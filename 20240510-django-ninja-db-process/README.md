@@ -17,7 +17,7 @@ uvicorn --log-level warning --workers 4 chousaheidan.asgi:application
 curl -X POST -H "Content-Type: application/json" --data '{}' http://127.0.0.1:8000/api/add_task
 ```
 
-See [wrk_tests/BENCHMARK.md](./wrk_tests/BENCHMARK.md) for a simple performance check.
+See [benchmark/README.md](./benchmark/README.md) for a simple performance check.
 
 ---
 
