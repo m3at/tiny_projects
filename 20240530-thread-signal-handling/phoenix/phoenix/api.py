@@ -29,21 +29,6 @@ def count_birds(request) -> int:
     return Birds.objects.count()
 
 
-# @api.get("/count_birds_task")
-# def count_birds_task(request) -> str:
-#     t_count_birds.delay()
-#     return "Currently watching the sky"
-
-
-# def send_signal_to_command_async():
-#     channel_layer = get_channel_layer()
-#     assert channel_layer is not None
-#     async_to_sync(channel_layer.send)(
-#         "command_channel",
-#         {"type": "process.message", "message": "Hello from main server!"},
-#     )
-
-
 def send_signal_to_command():
     redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
     # Something flying off a tree? I'm not an artist okay
@@ -56,7 +41,7 @@ def kill(request):
 
 
 @receiver(post_save, sender=Birds)
-def my_callback(sender, **_):
+def callback_send_signal(sender, **_):
     logger.error(f"Django signal on `post_save`, for table Birds: {sender=}")
     send_signal_to_command()
 

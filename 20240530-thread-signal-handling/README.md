@@ -20,3 +20,5 @@ curl 'http://127.0.0.1:8000/api/hatch?name=dove&emoji=🕊️'
 # Kill the phoenix on new entry to the bird table
 curl 'http://127.0.0.1:8000/api/hatch?name=goose&emoji=🪿'
 ```
+
+Tried async ways too but ended up very clunky. Using celery workers would be much cleaner than either ways.

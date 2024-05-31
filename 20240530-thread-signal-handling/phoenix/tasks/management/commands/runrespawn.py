@@ -1,15 +1,14 @@
-import threading
-from threading import Event
 import logging
 import os
 import signal
+import threading
+from threading import Event
 from time import sleep
 
 import redis
 from django.core.management.base import BaseCommand
 
 from tasks.models import Birds
-
 
 logger = logging.getLogger("phoenix." + __file__)
 
