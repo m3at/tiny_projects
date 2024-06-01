@@ -1,0 +1,12 @@
+repos:
+# Use ruff for linting and formatting
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.4.7
+  hooks:
+    # Doesn't seem to be applied consistently?
+    # https://github.com/astral-sh/ruff-pre-commit/issues/64
+    # Linter
+    - id: ruff
+      args: [ "--fix", "--select", "I" ]
+    # Formatter
+    - id: ruff-format

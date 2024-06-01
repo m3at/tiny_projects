@@ -1,0 +1,45 @@
+[project]
+requires-python = ">=3.12"
+
+[tool.poetry]
+package-mode = false
+name = "tour-recommendation"
+version = "0.1.0"
+description = ""
+authors = ["Paul Willot <kiwi.pwillot@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+keywords = [
+  "django", "django-ninja", "sql", "sqlite",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+]
+repository = "https://github.com/m3at/tiny_projects/tree/main/20240602-tour-recommendation/"
+documentation = "https://github.com/m3at/tiny_projects/tree/main/20240602-tour-recommendation/"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+openai = "^1.30.5"
+rich = "^13.7.1"
+tenacity = "^8.3.0"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.4.6"
+pre-commit = "^3.7.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+# sort imports
+lint.select = ["I"]
