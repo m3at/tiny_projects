@@ -1,5 +1,5 @@
-import time
 import random
+import time
 from typing import Literal
 
 from celery import Celery

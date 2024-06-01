@@ -1,9 +1,7 @@
-from ninja import NinjaAPI
+from ninja import ModelSchema, NinjaAPI, Schema
 
 # from tasks.models import DummyTask, DummyTaskIn, DummyTaskOut
 from tasks.models import DummyTask
-
-from ninja import Schema, ModelSchema
 
 api = NinjaAPI()
 

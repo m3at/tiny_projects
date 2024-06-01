@@ -1,13 +1,11 @@
 import logging
 
 import redis
-from django.db.utils import IntegrityError
 from django.db.models.signals import post_save
+from django.db.utils import IntegrityError
 from django.dispatch import receiver
 from ninja import NinjaAPI
-
 from tasks.models import Birds
-
 
 from phoenix.api_specs.schemas import (
     FailMessage,

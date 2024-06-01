@@ -1,16 +1,17 @@
-import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from bs4 import BeautifulSoup, Comment
-from pathlib import Path
 import re
+from pathlib import Path
+
+import httpx
 
 # pip install html-sanitizer
 # from html_sanitizer import Sanitizer
 # pip install nh3
 import nh3
+from bs4 import BeautifulSoup, Comment
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 # pip install readability-lxml
 from readability import Document

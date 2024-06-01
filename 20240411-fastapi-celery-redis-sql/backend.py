@@ -1,7 +1,6 @@
 import redis
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
 from sqlmodel import Session, SQLModel, create_engine, select
 
 # Local

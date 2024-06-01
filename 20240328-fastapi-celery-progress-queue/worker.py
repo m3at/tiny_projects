@@ -1,7 +1,8 @@
+import random
+import time
+
 import redis
 from celery import Celery
-import time
-import random
 
 app = Celery("worker", broker="amqp://guest:guest@localhost:5672//", backend="rpc://")
 

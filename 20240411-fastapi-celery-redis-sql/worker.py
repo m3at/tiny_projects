@@ -1,10 +1,10 @@
 import time
 
 import redis
+from src.tasks import TaskModel
 
 # Local
-from src.utils import randsleepf, get_veggies
-from src.tasks import TaskModel
+from src.utils import get_veggies, randsleepf
 
 celery_app = get_veggies()
 

@@ -3,8 +3,8 @@
 from datetime import datetime, timezone
 from typing import TypeAlias
 
-from sqlmodel import Field, SQLModel
 from pydantic import BaseModel
+from sqlmodel import Field, SQLModel
 
 # tasks_status = Literal["NEW", "PENDING", "STARTED", "SUCCESS"]
 # tasks_status: TypeAlias = Literal["NEW", "PENDING", "STARTED", "SUCCESS"]

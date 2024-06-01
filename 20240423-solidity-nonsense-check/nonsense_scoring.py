@@ -4,14 +4,13 @@ Licence same as the original:
 LGPL-2.1 license
 """
 
-import sys
-import string
 import gzip
 import pickle
+import string
+import sys
+from collections import defaultdict
 from pathlib import Path
 from urllib.request import urlretrieve
-from collections import defaultdict
-
 
 _delchars = str.maketrans("", "", string.punctuation + string.digits + " ")
 
