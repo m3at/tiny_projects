@@ -30,6 +30,7 @@ python = "^3.12"
 openai = "^1.30.5"
 rich = "^13.7.1"
 tenacity = "^8.3.0"
+qdrant-client = {extras = ["fastembed"], version = "^1.9.1"}
 
 
 [tool.poetry.group.dev.dependencies]
@@ -40,6 +41,6 @@ pre-commit = "^3.7.1"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.ruff]
-# sort imports
-lint.select = ["I"]
+# [tool.ruff]
+# # sort imports
+# lint.select = ["I"]
