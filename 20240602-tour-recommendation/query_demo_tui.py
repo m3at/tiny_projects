@@ -111,7 +111,7 @@ def main() -> None:
         if pos is not None and neg is not None:
             ids = [row.id for row in r]
             _pos = [ids[x - 1] for x in pos]
-            _neg = [ids[x - 1] for x in neg]
+            _neg = [ids[abs(x) - 1] for x in neg]
 
             r = client.recommend(
                 collection_name="demo_collection",

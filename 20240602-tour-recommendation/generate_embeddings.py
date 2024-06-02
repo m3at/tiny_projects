@@ -31,7 +31,7 @@ def main() -> None:
         try:
             area, country = j["place"].split(", ", maxsplit=1)
         except ValueError:
-            logger.warning("Couldn't split: {}".format(j["place"]))
+            # logger.warning("Couldn't split: {}".format(j["place"]))
             area = j["place"]
             country = ""
 
