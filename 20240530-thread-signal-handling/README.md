@@ -22,3 +22,8 @@ curl 'http://127.0.0.1:8000/api/hatch?name=goose&emoji=🪿'
 ```
 
 Tried async ways too but ended up very clunky. Using celery workers would be much cleaner than either ways.
+
+
+
+https://github.com/m3at/tiny_projects/assets/3440771/2ce70c16-4dcc-4620-bb11-9ba06b0f2a25
+
