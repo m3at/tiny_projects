@@ -1,0 +1,1 @@
+Permanently running celery tasks

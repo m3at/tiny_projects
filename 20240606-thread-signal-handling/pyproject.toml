@@ -1,0 +1,50 @@
+[project]
+requires-python = ">=3.12"
+
+[tool.poetry]
+package-mode = false
+name = "thread-signal-handling"
+version = "0.1.0"
+description = ""
+authors = ["Paul Willot <kiwi.pwillot@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+keywords = [
+  "django", "django-ninja", "sql", "sqlite",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+]
+repository = "https://github.com/m3at/tiny_projects/tree/main/20240606-thread-signal-handling"
+documentation = "https://github.com/m3at/tiny_projects/tree/main/20240606-thread-signal-handling"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+django = "^5.0.6"
+django-ninja = "^1.1.0"
+django-stubs = "^5.0.2"
+uvicorn = {extras = ["standard"], version = "^0.30.0"}
+gunicorn = "^22.0.0"
+django-celery-results = "^2.5.1"
+django-celery-beat = "^2.6.0"
+celery = "^5.4.0"
+redis = "^5.0.4"
+channels = "^4.1.0"
+channels-redis = "^4.2.0"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.4.6"
+pre-commit = "^3.7.1"
+flower = "^2.0.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
