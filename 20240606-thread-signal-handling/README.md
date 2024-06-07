@@ -16,3 +16,8 @@ pkill -TERM -f 'celery'
 # Purge tasks:
 cd phoenix && celery -A tasks purge -f
 ```
+
+
+
+https://github.com/m3at/tiny_projects/assets/3440771/103efb11-edd1-4c36-adce-210707569509
+
