@@ -1,13 +1,10 @@
 import logging
 
-import redis
 from celery.result import AsyncResult
 from django.db.models.signals import post_save
 from django.db.utils import IntegrityError
 from django.dispatch import receiver
 from ninja import NinjaAPI
-
-# from django_celery_results.models import TaskResult
 from tasks.celery_instance import app as celery_app
 from tasks.celery_tasks import t_track_a_bird
 from tasks.models import Birds
@@ -19,8 +16,8 @@ from phoenix.api_specs.schemas import (
 
 logger = logging.getLogger("phoenix." + __file__)
 
-# TODO: fill with currently running task, per color at startup
-TASKS_IDS = False
+# Keep track of running tasks
+CELERY_TASK_IDS: None | dict[str, AsyncResult] = None
 
 api = NinjaAPI()
 
@@ -35,166 +32,78 @@ def count_birds(request) -> int:
     return Birds.objects.count()
 
 
-def send_signal_to_command():
-    redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
-    # Something flying off a tree? I'm not an artist okay
-    redis_client.publish("command_channel", "🌳💨🍃")
-
-
-@api.get("/kill")
-def kill(request):
-    send_signal_to_command()
-
-
-# @receiver(post_save, sender=Birds)
-# def callback_send_signal(sender, **_):
-#     logger.error(f"Django signal on `post_save`, for table Birds: {sender=}")
-#     send_signal_to_command()
-
-# # a = celery_app.control.inspect().active()
-# a = TaskResult.objects.all()
-# if a is None:
-#     tasks_ids = {}
-# else:
-#     print(f">>>\n\n{a}\n\n<<<")
-#
-#     tasks_ids = {}
-
-# {'celery@Pauls-Air.local': [{'id': 'b0360eeb-9c2c-45cf-ba87-20cc48290b82', 'name': 'tasks.celery_tasks.t_track_a_bird', 'args': ['red'], 'kwargs': {}, 'type': 'tasks.celery_tasks.t_track_a_bird', 'hostname': 'celery@Pauls-Air.local', 'time_start': 1717693916.9852536, 'acknowledged': True, 'delivery_info': {'exchange': '', 'routing_key': 'celery', 'priority': 0, 'redelivered': False}, 'worker_pid': 34939}]}
-# buff = []
-# for k, v in a.items():
-#     buff.extend(v)
-#
-# tasks_ids = {
-#     # e["args"][0]: AsyncResult(id=e["id"]) for e in buff
-#     # Not getting the right task? Something is up
-#     e["args"][0]: AsyncResult(**e) for e in buff
-# }
-
-
-# @api.get("/ping")
-def get_tasks_ids():
-    tasks_ids = {}
+def _get_celery_task_ids():
+    celery_task_ids = {}
 
     # Discard all waiting tasks.
     # c = celery_app.control.discard_all()
 
-    # a = celery_app.control.inspect().active()
     # https://docs.celeryq.dev/en/stable/reference/celery.app.control.html#celery.app.control.Inspect.query_task
-    insp = celery_app.control.inspect()
-    a = insp.active()
+    active_tasks = celery_app.control.inspect().active()
 
-    print(f"???\n\n{insp.scheduled()}\n\n???")
-    # print(f"!!!\n\n{insp.reserved()}\n\n!!!")
-    # print(f"!!!\n\n{insp.registered()}\n\n!!!")
+    if active_tasks is None:
+        return celery_task_ids
 
-    # _ids = [x["id"] for _, v in insp.active().items() for x in v ]
-    # a = insp.query_task(_ids)
+    for v in active_tasks.values():
+        for task_params in v:
+            celery_task_ids[task_params["args"][0]] = AsyncResult(
+                id=task_params["id"], task_name=task_params["name"], app=celery_app
+            )
 
-    # {'celery@Pauls-Air.local': {
-    #     '1e08c2f8-7bb4-44a6-8dc9-dbd81ab142c9': [
-    #         'active',
-    #         {'id': '1e08c2f8-7bb4-44a6-8dc9-dbd81ab142c9', 'name': 'tasks.celery_tasks.t_track_a_bird', 'args': ['green'], 'kwargs': {}, 'type': 'tasks.celery_tasks.t_track_a_bird', 'hostname': 'celery@Pauls-Air.local', 'time_start': 1717723479.630555, 'acknowledged': True, 'delivery_info': {'exchange': '', 'routing_key': 'celery', 'priority': 0, 'redelivered': False}, 'worker_pid': 42583}
-    #     ],
-    #     '84fb4426-a473-41d1-ad1c-94c1e18a22ab': ['active', {'id': '84fb4426-a473-41d1-ad1c-94c1e18a22ab', 'name': 'tasks.celery_tasks.t_track_a_bird', 'args': ['green'], 'kwargs': {}, 'type': 'tasks.celery_tasks.t_track_a_bird', 'hostname': 'celery@Pauls-Air.local', 'time_start': 1717723319.6865015, 'acknowledged': True, 'delivery_info': {'exchange': '', 'routing_key': 'celery', 'priority': 0, 'redelivered': False}, 'worker_pid': 42198}]
-    # }}
-
-    # a = celery_app.Worker
-    # a = celery_app.control.objects().active()
-    # a = TaskResult.objects.all()
-    print(f">>>\n\n{a}\n\n<<<")
-    if a is None:
-        return {}
-
-    # print(f">>>\n\n{a}\n\n<<<")
-
-    # tasks_ids = {}
-    # {'celery@Pauls-Air.local': [{
-    #     'id': 'b0360eeb-9c2c-45cf-ba87-20cc48290b82',
-    #     'name': 'tasks.celery_tasks.t_track_a_bird',
-    #     'args': ['red'],
-    #     'kwargs': {},
-    #     'type': 'tasks.celery_tasks.t_track_a_bird',
-    #     'hostname': 'celery@Pauls-Air.local',
-    #     'time_start': 1717693916.9852536,
-    #     'acknowledged': True,
-    #     'delivery_info': {'exchange': '', 'routing_key': 'celery', 'priority': 0, 'redelivered': False},
-    #     'worker_pid': 34939
-    # }]}
-    buff = []
-    # for k, v in a.items():
-    #     buff.extend(v)
-    for v in a.values():
-        buff.extend(v)
-
-    # tasks_ids = {
-    #     # e["args"][0]: AsyncResult(id=e["id"]) for e in buff
-    #     # Not getting the right task? Something is up
-    #     # e["args"][0]: AsyncResult(**e) for e in buff
-    #     e["args"][0]: AsyncResult(id=e["id"], task_name=e["name"], app=celery_app) for e in buff
-    # }
-    for e in buff:
-        tasks_ids[e["args"][0]] = AsyncResult(
-            id=e["id"], task_name=e["name"], app=celery_app
-        )
-
-    return tasks_ids
-
-
-# print(celery_app.control.inspect().active())
-# # tasks_ids = {t for t in celery_app.control.inspect() if t.active()}
-# t = [x for x in celery_app.tasks if x.startswith('tasks.celery_tasks.t_track_a_bird')]
-# print(t)
-# tasks_ids = {t.color: t for t in celery_app.tasks}
+    return celery_task_ids
 
 
 @receiver(post_save, sender=Birds)
 def restart_task(sender, instance, **_):
-    global TASKS_IDS
+    """On change to `Birds`, trigger tasks."""
 
-    if not TASKS_IDS:
-        TASKS_IDS = get_tasks_ids()
+    global CELERY_TASK_IDS
 
-    logger.error(f"Django signal on `post_save`, for table Birds: {sender=}")
-    # t_track_a_bird.apply_async(countdown=0)
-    # logger.error(f"{instance.color=} {instance=}")
-    # celery_app.control.revoke("<TASK_ID>", terminate=True)
-    # https://docs.celeryq.dev/en/latest/reference/celery.result.html#celery.result.AsyncResult.revoke
-    color = instance.color
+    if CELERY_TASK_IDS is None:
+        CELERY_TASK_IDS = _get_celery_task_ids()
 
-    if color in TASKS_IDS:
-        task = TASKS_IDS[color]
+    logger.info(f"Django signal on `post_save`, for table Birds: {sender=}")
+    name = instance.name
 
-        # async_result = AsyncResult(id=task.id)
-        logger.info(f"Trying to revoke {task=}")
-        # celery_app.control.revoke(task, terminate=True)
-        # async_result.revoke(terminate=False, signal="KILL", wait=True, timeout=5)
-        # terminate=True doesn't work for threads. Does it make sense anyway?
+    #
+    if name in CELERY_TASK_IDS:
+        task = CELERY_TASK_IDS[name]
 
-        # task.revoke(terminate=True, signal="TERM", wait=True, timeout=2)
-        task.revoke(terminate=True, signal="KILL", wait=True, timeout=2)
+        # https://docs.celeryq.dev/en/latest/reference/celery.result.html#celery.result.AsyncResult.revoke
+        logger.debug(f"Task already running. Revoking {task=}")
+        # Is it useful to send SIGTERM first without killing?
+        # task.revoke(terminate=False, signal="TERM", wait=True, timeout=2)
+        task.revoke(terminate=True, signal="KILL", wait=True, timeout=1)
 
-        # task.revoke(terminate=False, signal="KILL", wait=True, timeout=2)
+    logger.debug(f"Starting new task for {name=}")
+    task = t_track_a_bird.apply_async((name,))  # type:ignore
 
-        # task.revoke(terminate=False, signal="KILL", wait=False)
-        # celery_app.control.revoke(task.id)
-
-    # task = t_track_a_bird.apply_async((color,), countdown=0)
-    task = t_track_a_bird.apply_async((color,))  # type:ignore
-    # tasks_ids[color] = task.id
-    TASKS_IDS[color] = task
+    # Keep track of the new task
+    CELERY_TASK_IDS[name] = task
 
 
 @api.get("/hatch", response={200: SuccessMessage, 418: FailMessage})
 def hatch(
     request,
     name: str,
-    flying_speed: int | None = None,
-    emoji: str | None = None,
-    color: str | None = None,
+    speed: int | None = None,
 ):
-    args = dict(name=name, flying_speed=flying_speed, emoji=emoji, color=color)
+    # This is very important
+    emoji = dict(
+        goose="🪿",
+        dove="🕊️",
+        eagle="🦅",
+        duck="🦆",
+        phoenix="🐦‍🔥",
+        parrot="🦜",
+        swan="🦢",
+        rooster="🐓",
+        flamingo="🦩",
+    ).get(name, None)
+
+    args = dict(name=name, speed=speed, emoji=emoji)
     args = {k: v for k, v in args.items() if v is not None}
+
     try:
         b = Birds(**args)
         b.save()
@@ -204,4 +113,23 @@ def hatch(
 
     logger.info(b)
 
-    return 200, {"message": "I'm flying"}
+    return 200, {"message": "New bird flying"}
+
+
+@api.get("/update", response={200: SuccessMessage, 418: FailMessage})
+def update(
+    request,
+    name: str,
+    speed: int,
+):
+    try:
+        b = Birds.objects.get(name=name)
+    except Birds.DoesNotExist:
+        logger.error(f"Never heard of '{name}'. Is it real?")
+        return 418, {"message": "I'm a teapot"}
+
+    prev_speed = b.speed
+    b.speed = speed
+    b.save()
+
+    return 200, {"message": f"Speed change: {speed - prev_speed} km/h"}

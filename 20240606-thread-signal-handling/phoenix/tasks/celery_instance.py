@@ -22,42 +22,7 @@ app.autodiscover_tasks()
 
 # By default, celery will setup it's own logger. Disable that, but it would be better to keep it above some level
 # https://wdicc.com/logging-in-celery-and-django/
+# https://stackoverflow.com/questions/48289809/celery-logger-configuration
 @signals.setup_logging.connect
 def on_celery_setup_logging(**kwargs):
     pass
-
-
-#     config = {
-#         "version": 1,
-#         "disable_existing_loggers": False,
-#         "formatters": {
-#             "default": {
-#                 "format": "%(asctime)s%(process)d/%(thread)d%(name)s%(funcName)s %(lineno)s%(levelname)s%(message)s",
-#                 "datefmt": "%Y/%m/%d %H:%M:%S",
-#             }
-#         },
-#         "handlers": {
-#             "celery": {
-#                 "level": "INFO",
-#                 "class": "logging.FileHandler",
-#                 "filename": "/logs/celery.log",
-#                 "formatter": "default",
-#             },
-#             "default": {
-#                 "level": "DEBUG",
-#                 "class": "logging.StreamHandler",
-#                 "formatter": "default",
-#             },
-#         },
-#         "loggers": {
-#             "celery": {"handlers": ["celery"], "level": "INFO", "propagate": False},
-#         },
-#         "root": {"handlers": ["default"], "level": "DEBUG"},
-#     }
-#
-#     # logging.config.dictConfig(config)
-
-
-@app.task(bind=True, ignore_result=True)
-def debug_task(self):
-    logging.debug(f"Request: {self.request!r}")

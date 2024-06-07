@@ -3,7 +3,7 @@
 set -eo pipefail
 
 rm -rf db.sqlite3* 2> /dev/null
-rm -rf phoenix/tasks/migrations/0*.py 2> /dev/null
+rm -rf tasks/migrations/0*.py 2> /dev/null
 
 python manage.py makemigrations tasks
 python manage.py migrate
