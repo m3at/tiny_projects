@@ -26,7 +26,8 @@ def main() -> None:
 
     docs = []
     metadata = []
-    for f in Path("./data").glob("*.json"):
+
+    for idx, f in enumerate(Path("./data").glob("*.json")):
         j = json.loads(f.read_text())
         try:
             area, country = j["place"].split(", ", maxsplit=1)
@@ -49,6 +50,7 @@ def main() -> None:
                     duration=listing["duration"],
                     requirements=listing["requirements"],
                     highlights=listing["highlights"],
+                    idx=idx,
                 )
             )
             docs.append(

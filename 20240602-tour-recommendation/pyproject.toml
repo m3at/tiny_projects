@@ -31,6 +31,7 @@ openai = "^1.30.5"
 rich = "^13.7.1"
 tenacity = "^8.3.0"
 qdrant-client = {extras = ["fastembed"], version = "^1.9.1"}
+fastapi = "^0.111.0"
 
 
 [tool.poetry.group.dev.dependencies]
