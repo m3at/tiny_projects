@@ -24,3 +24,12 @@ sqlite3 db.sqlite3 'PRAGMA temp_store = MEMORY;'
 sqlite3 db.sqlite3 'PRAGMA auto_vacuum = INCREMENTAL;'
 # Good to run every so often:
 # sqlite3 db.sqlite3 'PRAGMA optimize;'
+# Make sure relationships exists. Disabled by default for historical reasons
+sqlite3 db.sqlite3 'PRAGMA foreign_keys = ON;'
+
+# Longer timeout
+sqlite3 db.sqlite3 'PRAGMA busy_timeout = 5000;'
+
+# TODO: should set to immediate mode, from django 5.1
+# https://www.sqlite.org/lang_transaction.html
+# "transaction_mode": "IMMEDIATE"

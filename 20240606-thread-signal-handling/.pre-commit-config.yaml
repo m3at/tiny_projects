@@ -8,3 +8,6 @@ repos:
       args: [ --fix ]
     # Formatter
     - id: ruff-format
+    # Sort imports
+    - id: ruff
+      args: [ --fix, --select=I ]
