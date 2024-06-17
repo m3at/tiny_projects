@@ -75,33 +75,33 @@
 
     const placeholder_image_url = "https://placehold.co/320x180?text=16x9";
 
-    //const items = writable([]);
-    const items = writable([
-        {
-            id: "1",
-            title: "Placeholder",
-            state: 0,
-            image_url: placeholder_image_url,
-            location: "Placeholder",
-            highlights: "Placeholder",
-        },
-        {
-            id: "2",
-            title: "Placeholder",
-            state: 0,
-            image_url: placeholder_image_url,
-            location: "Placeholder",
-            highlights: "Placeholder",
-        },
-        {
-            id: "3",
-            title: "Placeholder",
-            state: 0,
-            image_url: placeholder_image_url,
-            location: "Placeholder",
-            highlights: "Placeholder",
-        },
-    ]);
+    const items = writable([]);
+    //const items = writable([
+    //    {
+    //        id: "1",
+    //        title: "Placeholder",
+    //        state: 0,
+    //        image_url: placeholder_image_url,
+    //        location: "Placeholder",
+    //        highlights: "Placeholder",
+    //    },
+    //    {
+    //        id: "2",
+    //        title: "Placeholder",
+    //        state: 0,
+    //        image_url: placeholder_image_url,
+    //        location: "Placeholder",
+    //        highlights: "Placeholder",
+    //    },
+    //    {
+    //        id: "3",
+    //        title: "Placeholder",
+    //        state: 0,
+    //        image_url: placeholder_image_url,
+    //        location: "Placeholder",
+    //        highlights: "Placeholder",
+    //    },
+    //]);
 
     function onKeyDown(e: KeyboardEvent) {
         switch (e.code) {
@@ -209,8 +209,8 @@
         const result = await response.json();
         //console.log(result);
 
-        // sleep a bit to simulate slow search
-        //await new Promise((resolve) => setTimeout(resolve, 500));
+        // sleep a bit to simulate slower search
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         searching_items = false;
 
@@ -230,11 +230,12 @@
         <!-- on:keydown={onKeyDown} -->
         <!-- on:input={fetchSearch} -->
         <!-- search={fetchAutocomplete} -->
+        <!-- label="Explore amazing tours" -->
         <Autocomplete
             combobox
             search={fetchAutocomplete}
             showMenuWithNoInput={false}
-            label="Explore amazing tours"
+            label="Combined semantic search and recommendation"
             id="search"
             bind:value={search_field_content}
             on:keydown={onKeyDown}

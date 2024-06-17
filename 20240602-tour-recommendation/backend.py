@@ -252,7 +252,7 @@ def search(q: QueryWithItems) -> list[dict]:
     print(query)
     print(q.items)
 
-    limit = 5
+    limit = 6
 
     # voted items
     voted_items = [i for i in q.items if i.state != 0]

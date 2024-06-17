@@ -69,7 +69,7 @@
                         </div>
                     </MediaContent>
                 </Media>
-                <Content class="mdc-typography--body2" style="overflow-y: auto; height: 100px;">
+                <Content class="mdc-typography--body2" style="overflow-y: auto; height: 80px;">
                     {item.highlights}
                 </Content>
             </PrimaryAction>
