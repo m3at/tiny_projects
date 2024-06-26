@@ -25,6 +25,13 @@ def t_track_a_bird(name):
     logger.info(f">>> Celery task: t_track_a_bird, for {name=}")
     c = 0
     bird = Birds.objects.filter(name=name).latest()
+
+    if not bird.is_active:
+        logger.debug(
+            f"Look like that bird has retired. There's no need to track it then, isn't it? {bird}"
+        )
+        return
+
     while True:
         try:
             # This shouldn't be necessary, should only need to call at startup

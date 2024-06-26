@@ -54,7 +54,7 @@ def _get_celery_task_ids():
 
 
 @receiver(post_save, sender=Birds)
-def restart_task(sender, instance, **_):
+def restart_task(sender, instance: Birds, **_):
     """On change to `Birds`, trigger tasks."""
 
     global CELERY_TASK_IDS
@@ -74,6 +74,10 @@ def restart_task(sender, instance, **_):
         # Is it useful to send SIGTERM first without killing?
         # task.revoke(terminate=False, signal="TERM", wait=True, timeout=2)
         task.revoke(terminate=True, signal="KILL", wait=True, timeout=1)
+
+    if not instance.is_active:
+        logger.info(f"Not active, not triggering a restart: {name=}")
+        return
 
     logger.debug(f"Starting new task for {name=}")
     task = t_track_a_bird.apply_async((name,))  # type:ignore
@@ -120,7 +124,8 @@ def hatch(
 def update(
     request,
     name: str,
-    speed: int,
+    speed: int | None = None,
+    is_active: bool | None = None,
 ):
     try:
         b = Birds.objects.get(name=name)
@@ -128,8 +133,11 @@ def update(
         logger.error(f"Never heard of '{name}'. Is it real?")
         return 418, {"message": "I'm a teapot"}
 
-    prev_speed = b.speed
-    b.speed = speed
+    b.speed = b.speed if speed is None else speed
+    b.is_active = b.is_active if is_active is None else is_active
+
     b.save()
 
-    return 200, {"message": f"Speed change: {speed - prev_speed} km/h"}
+    return 200, {
+        "message": f"What does it mean to 'update' a bird? Strange concept. Anyway: {b}"
+    }
