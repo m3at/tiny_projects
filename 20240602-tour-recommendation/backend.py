@@ -4,17 +4,13 @@ import re
 import unicodedata
 from copy import deepcopy
 from pathlib import Path
-from random import randint, shuffle
-from time import perf_counter
 
 import httpx
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from openai import OpenAI
 from pydantic import BaseModel
 from qdrant_client import QdrantClient, models
-from qdrant_client.conversions.common_types import ScoredPoint
 from qdrant_client.fastembed_common import QueryResponse
 
 client = OpenAI()
