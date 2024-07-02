@@ -17,3 +17,9 @@ Run (using [jq](https://github.com/jqlang/jq) to parse the output):
 ./post.sh "dog" | jq '.choices[0].message.content'
 # "not hotdog"
 ```
+
+![hotdog not hotdog app, Silicon Valley show](https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMjFyYnR4cWpsMm05bDVibzh4dHdiYzZjcndmODEzNXdldDJuOXIyYyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3ohzdXIKl0BjNK2g3m/giphy.gif)
+
+
+https://github.com/m3at/tiny_projects/assets/3440771/d660dfc7-cb8f-4132-b30c-d2de56a12af7
+
