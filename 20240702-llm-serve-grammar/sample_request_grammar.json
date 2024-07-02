@@ -1,0 +1,41 @@
+{
+    "model": "Qwen2-1.5B-Instruct",
+    "max_tokens": 256,
+    "temperature": 0.0,
+    "cache_prompt": true,
+    "grammar": "root ::= \"hotdog\" | \"not hotdog\"",
+    "messages": [
+        {
+            "role": "system",
+            "content": "Classify the worlds into: hotdog / not hotdog"
+        },
+        {
+            "role": "user",
+            "content": "Dog"
+        },
+        {
+            "role": "assistant",
+            "content": "not hotdog"
+        },
+        {
+            "role": "user",
+            "content": "ground meat"
+        },
+        {
+            "role": "assistant",
+            "content": "hotdog"
+        },
+        {
+            "role": "user",
+            "content": "robot"
+        },
+        {
+            "role": "assistant",
+            "content": "not hotdog"
+        },
+        {
+            "role": "user",
+            "content": "tobereplaced"
+        }
+    ]
+}
