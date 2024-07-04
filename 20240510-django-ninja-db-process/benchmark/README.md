@@ -47,3 +47,14 @@ threads | connections | throughput (client) | req/s | success | failed | socket 
 The socket errors are ~95% timeout, the rest is connection error.
 
 Didn't manage to push past 2.4k req/s, some limitations likely due to my machine.
+
+---
+
+Update with more pragma, async, and run with gunicorn:
+```bash
+./reset_db_and_sqlite_setup.sh
+gunicorn --worker-class uvicorn.workers.UvicornWorker --log-level critical --workers 8 chousaheidan.asgi:application
+```
+threads | connections | throughput (client) | req/s | success | failed | socket errors
+---|---|---|---|---|---|---
+4 | 16 | 6000 | 2583.1 | 77493 | 0 | 0

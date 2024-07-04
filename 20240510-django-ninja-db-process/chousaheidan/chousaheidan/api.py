@@ -25,9 +25,10 @@ class DummyTaskOut(ModelSchema):
 
 # @api.post("/work/{task_id}")
 @api.post("/add_task")
-def add_task(request, task_in: DummyTaskIn):
+async def add_task(request, task_in: DummyTaskIn):
     # print(task_in.dict())
-    task = DummyTask.objects.create(**task_in.dict())
+    # task = DummyTask.objects.create(**task_in.dict())
+    task = await DummyTask.objects.acreate(**task_in.dict())
     return f"Created task: {task.name=} {task.date=} {task.id=}"
 
 

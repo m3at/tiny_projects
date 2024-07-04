@@ -4,7 +4,7 @@ requires-python = ">=3.12"
 [tool.poetry]
 package-mode = false
 name = "20240508-django-ninja-db-process"
-version = "0.1.0"
+version = "0.2.0"
 description = ""
 authors = ["Paul Willot <kiwi.pwillot@gmail.com>"]
 license = "MIT"
@@ -28,15 +28,15 @@ documentation = "https://github.com/m3at/tiny_projects/tree/main/220240508-djang
 [tool.poetry.dependencies]
 python = "^3.12"
 django = "^5.0.6"
-django-ninja = "^1.1.0"
-django-stubs = "^5.0.0"
-uvicorn = {extras = ["standard"], version = "^0.29.0"}
+django-ninja = "^1.2.0"
+django-stubs = "^5.0.2"
+uvicorn = {extras = ["standard"], version = "^0.30.1"}
 gunicorn = "^22.0.0"
 
 
 [tool.poetry.group.dev.dependencies]
-ruff = "^0.4.3"
-pre-commit = "^3.7.0"
+ruff = "^0.5.0"
+pre-commit = "^3.7.1"
 
 [build-system]
 requires = ["poetry-core"]
