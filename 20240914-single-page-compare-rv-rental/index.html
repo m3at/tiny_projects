@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camping Car Rental Options</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-8xl mx-auto bg-white shadow-lg rounded-lg p-6">
+        <h1 class="text-2xl font-bold mb-6">Camping Car Rental Options</h1>
+        <div class="grid grid-cols-3 gap-4 mb-4">
+            <div>
+                <label for="weekdayPrice" class="block text-sm font-medium text-gray-700">Weekday Price</label>
+                <input type="text" id="weekdayPrice" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            </div>
+            <div>
+                <label for="weekendPrice" class="block text-sm font-medium text-gray-700">Weekend Price</label>
+                <input type="text" id="weekendPrice" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            </div>
+            <div>
+                <label for="company" class="block text-sm font-medium text-gray-700">Company</label>
+                <input type="text" id="company" list="companyList" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                <datalist id="companyList"></datalist>
+            </div>
+        </div>
+        <div class="mb-4">
+            <label class="flex items-center">
+                <input type="checkbox" id="longTermRental" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-offset-0 focus:ring-indigo-200 focus:ring-opacity-50">
+                <span class="ml-2 text-sm text-gray-700">Rental > 21 days (30% discount)</span>
+            </label>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <label for="vehicleName" class="block text-sm font-medium text-gray-700">Vehicle Name (optional)</label>
+                <input type="text" id="vehicleName" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            </div>
+            <div>
+                <label for="comments" class="block text-sm font-medium text-gray-700">Comments (optional)</label>
+                <input type="text" id="comments" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            </div>
+        </div>
+        <button id="addToList" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50">Add to List</button>
+        <div class="mt-4">
+            <label for="filterCompany" class="block text-sm font-medium text-gray-700">Filter by Company</label>
+            <select id="filterCompany" multiple class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            </select>
+            <button id="clearFilter" class="mt-2 bg-gray-200 text-gray-700 py-1 px-2 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50">Clear Filter</button>
+        </div>
+        <div class="mt-8 overflow-x-auto">
+            <table id="rentalTable" class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">Vehicle Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">Weekday Price</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">Weekend Price</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">Long Term</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">Price per Month</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">Company</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer">Comments</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200"></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        const weekdayPriceInput = document.getElementById('weekdayPrice');
+        const weekendPriceInput = document.getElementById('weekendPrice');
+        const longTermRentalCheckbox = document.getElementById('longTermRental');
+        const vehicleNameInput = document.getElementById('vehicleName');
+        const commentsInput = document.getElementById('comments');
+        const companyInput = document.getElementById('company');
+        const addToListButton = document.getElementById('addToList');
+        const rentalTable = document.getElementById('rentalTable');
+        const filterCompanySelect = document.getElementById('filterCompany');
+        const clearFilterButton = document.getElementById('clearFilter');
+        let rentals = [];
+        let currentSortColumn = '';
+        let sortAscending = true;
+        let editingIndex = -1;
+
+        function formatNumber(num) {
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+
+        function parseNumber(str) {
+            return parseFloat(str.replace(/,/g, ''));
+        }
+
+        weekdayPriceInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/[^\d,]/g, '');
+        });
+
+        weekendPriceInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/[^\d,]/g, '');
+        });
+
+        function addRental() {
+            const weekdayPrice = parseNumber(weekdayPriceInput.value);
+            const weekendPrice = parseNumber(weekendPriceInput.value);
+            const longTerm = longTermRentalCheckbox.checked;
+            const vehicleName = vehicleNameInput.value || `Vehicle #${rentals.length + 1}`;
+            const comments = commentsInput.value;
+            const company = companyInput.value;
+
+            if (isNaN(weekdayPrice) || isNaN(weekendPrice)) {
+                alert('Please enter valid prices');
+                return;
+            }
+
+            const pricePerMonth = calculatePricePerMonth(weekdayPrice, weekendPrice, longTerm);
+            
+            if (editingIndex === -1) {
+                rentals.push({ vehicleName, weekdayPrice, weekendPrice, longTerm, pricePerMonth, company, comments });
+            } else {
+                rentals[editingIndex] = { vehicleName, weekdayPrice, weekendPrice, longTerm, pricePerMonth, company, comments };
+                editingIndex = -1;
+            }
+            
+            updateTable();
+            resetInputs();
+            saveToLocalStorage();
+            updateCompanyList();
+        }
+
+        function calculatePricePerMonth(weekdayPrice, weekendPrice, longTerm) {
+            const monthlyPrice = (weekdayPrice * 22 + weekendPrice * 8);
+            return longTerm ? monthlyPrice * 0.7 : monthlyPrice;
+        }
+
+        function updateTable() {
+            const tbody = rentalTable.querySelector('tbody');
+            tbody.innerHTML = '';
+            const filteredRentals = filterRentals();
+            filteredRentals.forEach((rental, index) => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">${rental.vehicleName}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatNumber(rental.weekdayPrice)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatNumber(rental.weekendPrice)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${rental.longTerm ? 'Yes' : 'No'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatNumber(Math.round(rental.pricePerMonth))}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${rental.company}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${rental.comments}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <button class="text-blue-600 hover:text-blue-900 mr-2" onclick="editRental(${index})">Edit</button>
+                        <button class="text-red-600 hover:text-red-900" onclick="deleteRental(${index})">Delete</button>
+                    </td>
+                `;
+                row.classList.add('hover:bg-gray-100', 'transition-colors', 'duration-150');
+            });
+        }
+
+        function resetInputs() {
+            weekdayPriceInput.value = '';
+            weekendPriceInput.value = '';
+            longTermRentalCheckbox.checked = false;
+            vehicleNameInput.value = '';
+            commentsInput.value = '';
+            companyInput.value = '';
+            addToListButton.textContent = 'Add to List';
+        }
+
+        function deleteRental(index) {
+            rentals.splice(index, 1);
+            updateTable();
+            saveToLocalStorage();
+            updateCompanyList();
+        }
+
+        function editRental(index) {
+            const rental = rentals[index];
+            weekdayPriceInput.value = rental.weekdayPrice;
+            weekendPriceInput.value = rental.weekendPrice;
+            longTermRentalCheckbox.checked = rental.longTerm;
+            vehicleNameInput.value = rental.vehicleName;
+            commentsInput.value = rental.comments;
+            companyInput.value = rental.company;
+            editingIndex = index;
+            addToListButton.textContent = 'Update';
+        }
+
+        function sortTable(column) {
+            // Define sortable columns and their corresponding data keys in the rentals array
+            const sortableColumns = {
+                'vehicle name': 'vehicleName',
+                'weekday price': 'weekdayPrice',
+                'weekend price': 'weekendPrice',
+                'price per month': 'pricePerMonth'
+            };
+
+            // Exit if clicked column is not sortable
+            if (!sortableColumns[column]) return;
+
+            // Toggle sorting direction if the same column is clicked
+            if (sortableColumns[column] === currentSortColumn) {
+                sortAscending = !sortAscending;
+            } else {
+                currentSortColumn = sortableColumns[column];
+                sortAscending = true;
+            }
+
+            // Sort the rentals array based on the selected column
+            rentals.sort((a, b) => {
+                let valueA = a[currentSortColumn];
+                let valueB = b[currentSortColumn];
+
+                if (typeof valueA === 'string') {
+                    valueA = valueA.toLowerCase();
+                    valueB = valueB.toLowerCase();
+                }
+
+                if (valueA < valueB) return sortAscending ? -1 : 1;
+                if (valueA > valueB) return sortAscending ? 1 : -1;
+                return 0;
+            });
+
+            updateTable();
+            updateSortIndicators();
+        }
+
+        function updateSortIndicators() {
+            const headers = rentalTable.querySelectorAll('th');
+            headers.forEach(header => {
+                const column = header.textContent.toLowerCase().trim();
+                const columnKey = column.replace(/\s/g, ''); // Simplify key matching
+                const isCurrent = columnKey === currentSortColumn.replace(/[A-Z]/g, match => ` ${match.toLowerCase()}`).replace(/\s/g, '');
+
+                // Reset all headers to remove any arrows
+                header.textContent = header.textContent.replace(' ↑', '').replace(' ↓', '');
+
+                // Add the proper arrow if it's the currently sorted column
+                if (isCurrent) {
+                    header.textContent += sortAscending ? ' ↑' : ' ↓';
+                }
+            });
+        }
+
+
+        // Only add cursor-pointer style to sortable columns
+        //const sortableColumns = ['Vehicle Name', 'Weekday Price', 'Weekend Price', 'Price per Month'];
+        //const headers = rentalTable.querySelectorAll('th');
+        //headers.forEach(header => {
+        //    const columnText = header.textContent.trim();
+        //    if (sortableColumns.includes(columnText)) {
+        //        header.classList.add('cursor-pointer');
+        //    }
+        //});
+
+
+        function saveToLocalStorage() {
+            localStorage.setItem('rentals', JSON.stringify(rentals));
+        }
+
+        function loadFromLocalStorage() {
+            const storedRentals = localStorage.getItem('rentals');
+            if (storedRentals) {
+                rentals = JSON.parse(storedRentals);
+                updateTable();
+                updateCompanyList();
+            }
+        }
+
+        function updateCompanyList() {
+            const companies = [...new Set(rentals.map(rental => rental.company))];
+            const companyList = document.getElementById('companyList');
+            const filterCompanySelect = document.getElementById('filterCompany');
+            
+            companyList.innerHTML = '';
+            filterCompanySelect.innerHTML = '';
+            
+            companies.forEach(company => {
+                if (company) {
+                    companyList.innerHTML += `<option value="${company}">`;
+                    filterCompanySelect.innerHTML += `<option value="${company}">${company}</option>`;
+                }
+            });
+        }
+
+        function filterRentals() {
+            const selectedCompanies = Array.from(filterCompanySelect.selectedOptions).map(option => option.value);
+            if (selectedCompanies.length === 0) return rentals;
+            return rentals.filter(rental => selectedCompanies.includes(rental.company));
+        }
+
+        addToListButton.addEventListener('click', addRental);
+
+        [weekdayPriceInput, weekendPriceInput, vehicleNameInput, commentsInput, companyInput].forEach(input => {
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && weekdayPriceInput.value && weekendPriceInput.value) {
+                    addRental();
+                }
+            });
+        });
+
+        // Add event listener for sorting
+        rentalTable.querySelector('thead').addEventListener('click', (e) => {
+            if (e.target.tagName === 'TH') {
+                const column = e.target.textContent.toLowerCase().trim();
+                sortTable(column);
+            }
+        });
+
+        clearFilterButton.addEventListener('click', () => {
+            filterCompanySelect.value = [];
+            updateTable();
+        });
+
+        filterCompanySelect.addEventListener('change', updateTable);
+
+        loadFromLocalStorage();
+    </script>
+</body>
+</html>
