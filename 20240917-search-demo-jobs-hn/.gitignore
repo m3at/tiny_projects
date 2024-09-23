@@ -1,0 +1,4 @@
+uv.lock
+db.qdrant/
+models_onnx/
+onnx-*/

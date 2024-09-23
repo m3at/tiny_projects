@@ -1,0 +1,38 @@
+[project]
+name = "hn-jobs-semsearch"
+version = "0.1.0"
+description = "Demo of a semantic search engine"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+  {name = "Paul Willot"},
+]
+dependencies = [
+    "fastapi~=0.114.2",
+    "httpx~=0.27",
+    "numpy>2",
+    "onnxruntime~=1.19",
+    "qdrant-client~=1.11.2",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "flagembedding>=1.2.11",
+    "flashrank[listwise]~=0.2.9",
+    "jupyterlab>=4.2.5",
+    "matplotlib>=3.9.2",
+    "openai>=1.45.1",
+    "pandas>=2.2.2",
+    "peft>=0.12.0",
+    "rerankers[flashrank,transformers]~=0.5.3",
+    "rich[jupyter]>=13.8.1",
+    "ruff>=0.6.4",
+    "seaborn>=0.13.2",
+    "torch>=2.4.1",
+]
+
+# Limit to 2 OS
+environments = [
+    "sys_platform == 'darwin'",
+    "sys_platform == 'linux'",
+]
