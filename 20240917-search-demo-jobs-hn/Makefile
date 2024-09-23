@@ -1,4 +1,4 @@
-.PHONY: help lint embedding-server query-augmentation-server
+.PHONY: help lint serve-embedding serve-query-augmentation
 
 # Most shell should do this automatically but who doesn't enjoy more awk?
 help:  ## Show commands
@@ -8,12 +8,12 @@ help:  ## Show commands
 lint:  ## Lint
 	@uv run ruff check --fix --select=I && uv run ruff format
 
-# TODO: add download off onnx models
+# TODO: add download of onnx models (reranker), embedding (gte-base) and qwen2.5
 
 
 # Require compiling llamafile: https://github.com/Mozilla-Ocho/llamafile
-embedding-server:
+serve-embedding:
 	llamafiler --unsecure --trust 127.0.0.1/32 --listen 8989 --gpu DISABLE --fast -m $$DIR_MLMODELS/embeddings/gte-base-Q8_0.gguf
 
-query-augmentation-server:
+serve-query-augmentation:
 	llamafile -m $$DIR_MLMODELS/qwen2.5-1.5b-instruct-q8_0.gguf --server --nobrowser --n-gpu-layers 999 --temp 0.8 -c 2048 --gpu APPLE --n-predict 128 --log-disable --parallel 1 --fast --flash-attn --port 8082

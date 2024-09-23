@@ -18,8 +18,8 @@ from rich.console import Console
 from rich.prompt import Prompt
 from tokenizers import Tokenizer
 
-DOCS_MAX_TOKENS_RERANK: Final[int] = 1024
-PRINT_MAX_CHAR: Final[int] = 768
+DOCS_MAX_TOKENS_RERANK: Final[int] = 512
+PRINT_MAX_CHAR: Final[int] = 500
 
 
 class Reranker:
@@ -210,7 +210,9 @@ def mainloop(http_client: httpx.Client, reranker: Reranker) -> None:
     c = client.count(collection_name)
 
     limit = 16
-    show_top = 8
+    show_top = 5
+
+    # senior ml eng medical domain
 
     console.log(
         f"Starting search demo, on {c.count} entries. Retrieval+rerank N={limit}. Showing top={show_top}"
@@ -239,12 +241,31 @@ def mainloop(http_client: httpx.Client, reranker: Reranker) -> None:
 
         # Vector search
         _t = perf_counter()
-        r = client.query_points(
-            collection_name=collection_name,
-            query=_query_vec,
-            query_filter=None,
-            limit=limit,
-        ).points
+        # r = client.query_points(
+        #     collection_name=collection_name,
+        #     query=_query_vec,
+        #     query_filter=None,
+        #     limit=limit,
+        # ).points
+
+        # Look at limit * 3 for each augmented queries, concat, and take the top
+        _mixed_vec = []
+        for qv in _q:
+            _r = client.query_points(
+                collection_name=collection_name,
+                query=qv,
+                query_filter=None,
+                limit=limit * 3,
+            ).points
+            _mixed_vec.extend(_r)
+        # Get unique results
+        _filt = []
+        _s = set()
+        for x in sorted(_mixed_vec, key=lambda x: x.score, reverse=True):
+            if x.id not in _s:
+                _filt.append(x)
+                _s.add(x.id)
+        r = _filt[:limit]
 
         _delta = perf_counter() - _t
         console.print(f"[cornflower_blue]VECTOR SEARCH took {_delta:.2f}s[/]")
@@ -257,7 +278,7 @@ def mainloop(http_client: httpx.Client, reranker: Reranker) -> None:
         rr = sorted(list(zip(scores, r)), key=lambda x: x[0], reverse=True)
 
         _delta = perf_counter() - _t
-        console.print(f"[cornflower_blue]RERANKED took {_delta:.2f}s[/]")
+        console.print(f"[cornflower_blue]RERANKING took {_delta:.2f}s[/]")
         print_rez_rr(console, rr[:show_top])
 
 
