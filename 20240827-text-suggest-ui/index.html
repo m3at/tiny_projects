@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modify grammar and fix spelling</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inconsolata&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-6">
+    <div class="mb-4 relative">
+      <textarea id="inputText" rows="4" class="w-full p-2 border rounded" placeholder="Enter your text here"></textarea>
+      <button id="clearButton" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 focus:outline-none hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+        </svg>
+      </button>
+    </div>
+
+    <!--<div id="resultText" class="invisible max-h-0 max-w-0 overflow-x-hidden"></div>-->
+    
+    <div class="flex flex-wrap items-center mb-4">
+      <button id="sendButton" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+        Send text
+      </button>
+
+      <div class="ml-4 flex-col items-center">
+        <select id="correctionType" class="block w-32 pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+          <option value="normal">Normal</option>
+          <option value="aggressive">Aggressive review</option>
+          <option value="translator">Translate</option>
+          <option value="poetry">For fun, turn into a poem</option>
+        </select>
+      </div>
+
+      <button id="copyButton" class="ml-2 bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50">
+            Copy modified text
+      </button>
+
+      <div id="spinner" class="ml-4 hidden">
+        <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      </div>
+    </div>
+
+    <div id="diffview" class="border rounded p-4 bg-gray-50 font-mono text-sm whitespace-pre-wrap overflow-x-auto" contenteditable="true"></div>
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"></script>
+  <script src="diff.js"></script>
+
+  <script>
+    function escapeHtml(unsafe) {
+      return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function renderDiff(diffDiv, contentsBefore, contentsAfter, correction) {
+      if (correction == "translator" || correction == "poetry") {
+        diffDiv.innerHTML = contentsAfter;
+        return;
+      }
+
+      const diff = Diff.diffWords(contentsBefore, contentsAfter);
+
+      diffDiv.innerHTML = ''; // Clear previous diff
+      let htmlContent = '';
+
+      diff.forEach((part) => {
+        const escapedValue = escapeHtml(part.value);
+        if (part.added) {
+          htmlContent += `<span class="font-bold text-green-600" contenteditable="true">${escapedValue}</span>`;
+        } else if (part.removed) {
+          htmlContent += `<span class="font-bold text-red-600 line-through" contenteditable="false">${escapedValue}</span>`;
+        } else {
+          htmlContent += `<span class="text-gray-600" contenteditable="true">${escapedValue}</span>`;
+        }
+      });
+
+      diffDiv.innerHTML = htmlContent;
+    }
+
+    const url_api = `${location.protocol}//${location.hostname}:${location.port}/transform`;
+
+    async function callApi(text, correction_v) {
+      const response = await fetch(url_api, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ original: text, correction: correction_v }),
+      });
+
+      if (!response.ok) {
+        throw new Error('API call failed');
+      }
+
+      const data = await response.json();
+      return data.modified;
+    }
+
+    $(document).ready(function() {
+      const inputText = $('#inputText');
+      const sendButton = $('#sendButton');
+      const clearButton = $('#clearButton');
+      const spinner = $('#spinner');
+      //const resultText = $('#resultText');
+      const copyButton = $('#copyButton');
+      const diffView = $('#diffview').get(0);
+      const correctionType = $('#correctionType');
+
+      function updateClearButtonVisibility() {
+        if (inputText.val().trim() === '') {
+          clearButton.addClass('hidden');
+        } else {
+          clearButton.removeClass('hidden');
+        }
+      }
+
+      inputText.on('input', updateClearButtonVisibility);
+
+      clearButton.on('click', function() {
+        inputText.val('');
+        updateClearButtonVisibility();
+      });
+
+      sendButton.on('click', async function() {
+        const text = inputText.val();
+        const correction = correctionType.val();
+
+        spinner.removeClass('hidden');
+        sendButton.prop('disabled', true);
+
+        try {
+          const response = await callApi(text, correction);
+          //resultText.text(response);
+          renderDiff(diffView, text, response, correction);
+        } catch (error) {
+          console.error('Error:', error);
+          alert('An error occurred while processing your request.');
+        } finally {
+          spinner.addClass('hidden');
+          sendButton.prop('disabled', false);
+        }
+      });
+
+      copyButton.on('click', function() {
+        const tempDiv = document.createElement('div');
+        const spans = diffView.querySelectorAll('span:not(.line-through)');
+        spans.forEach(span => {
+          tempDiv.appendChild(span.cloneNode(true));
+        });
+        const textToCopy = tempDiv.innerText;
+
+        //navigator.clipboard.writeText(textToCopy).then(() => {
+        //  copyButton.textContent = '✔️  Copied!';
+        //  setTimeout(() => {
+        //    copyButton.textContent = 'Copy modified text';
+        //  }, 1000);
+        //}).catch(err => {
+        //  console.error('Failed to copy text: ', err);
+        //});
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            copyButton.text('✔️  Copied!');
+            copyButton.prop('disabled', true);
+            setTimeout(() => {
+              copyButton.text('Copy modified text');
+              copyButton.prop('disabled', false);
+            }, 1000);
+          }).catch(err => {
+            console.error('Failed to copy text: ', err);
+            copyButton.text('Copy failed');
+            setTimeout(() => {
+              copyButton.text('Copy modified text');
+            }, 1000);
+          });
+      });
+
+      diffView.addEventListener('input', function() {
+        // You can add additional logic here if needed when the user edits the diffview
+      });
+    });
+  </script>
+</body>
+</html>
