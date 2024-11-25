@@ -106,6 +106,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Use the `whitenoise` package to take care of staticfile serving, for simplicity
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    #
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -113,6 +116,13 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# Keep static files cached and compressed, using `whitenoise`
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 ROOT_URLCONF = "kitsune.urls"
 
@@ -221,7 +231,7 @@ STATICFILES_DIRS = [
     BASE_DIR / "kitsune" / "static",
 ]
 # Prod? Will just use the same way for now ¯\_(ツ)_/¯
-# STATIC_ROOT = BASE_DIR / "kitsune" / "static"
+STATIC_ROOT = BASE_DIR / "kitsune" / "static" / "collected"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

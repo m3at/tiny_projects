@@ -11,6 +11,10 @@ __pycache__
 # DB
 db_mount/db.*
 
+# Generated static files
+kitsune/static/collected/*
+!kitsune/static/collected/.gitignore
+
 # NPM stuff for tailwind
 kitsune/tasks/templates/package-lock.json
 kitsune/tasks/templates/node_modules

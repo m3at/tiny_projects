@@ -17,6 +17,7 @@ dependencies = [
     "django-celery-results>=2.5.1",
     "django-celery-beat>=2.7.0",
     "redis>=5.2.0",
+    "whitenoise[brotli]>=6.8.2",
 ]
 
 # Limit to 2 OS

@@ -111,6 +111,7 @@ migrate:  ## Run migrations
 		uv run --frozen python manage.py migrate --noinput && \
 		uv run --frozen python manage.py createuser && \
 		uv run --frozen python manage.py populate && \
+		uv run --frozen python manage.py collectstatic && \
 		DJANGO_SUPERUSER_PASSWORD=$(DJANGO_ADMIN_PASSWORD) uv run python manage.py createsuperuser --noinput \
 		    --username $(DJANGO_ADMIN_USERNAME) --email $(DJANGO_ADMIN_USERNAME)@test.example --verbosity 0 2>/dev/null || true
 
@@ -161,7 +162,9 @@ synctoremote:  ## Sync local files to remote, except git, venv, and db files
 		--exclude=.env \
 		--exclude='db_mount/db.sqlite3*' \
 		--exclude='*/.ruff_cache' --exclude='*/__pycache__' \
-		--exclude='*/_tmp_*' --exclude='_tmp_*' --exclude='kitsune/tasks/templates/node_modules' \
+		--exclude='*/_tmp_*' --exclude='_tmp_*' \
+		--exclude='kitsune/tasks/templates/node_modules' \
+		--exclude='kitsune/static/collected' \
 		./ \
 		$(SERVER_REMOTE_USER)@$(SERVER_REMOTE_HOST):$(SERVER_REMOTE_PATH)
 
