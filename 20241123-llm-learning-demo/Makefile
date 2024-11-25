@@ -107,10 +107,10 @@ deletedb:
 
 migrate:  ## Run migrations
 	@cd kitsune && \
-		uv run python manage.py makemigrations --noinput && \
-		uv run python manage.py migrate --noinput && \
-		uv run python manage.py createuser && \
-		uv run python manage.py populate && \
+		uv run --frozen python manage.py makemigrations --noinput && \
+		uv run --frozen python manage.py migrate --noinput && \
+		uv run --frozen python manage.py createuser && \
+		uv run --frozen python manage.py populate && \
 		DJANGO_SUPERUSER_PASSWORD=$(DJANGO_ADMIN_PASSWORD) uv run python manage.py createsuperuser --noinput \
 		    --username $(DJANGO_ADMIN_USERNAME) --email $(DJANGO_ADMIN_USERNAME)@test.example --verbosity 0 2>/dev/null || true
 
