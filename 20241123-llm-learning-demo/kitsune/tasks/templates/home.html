@@ -104,18 +104,43 @@
 </div>
 
 <script>
+// Semi-smart polling logic that will only poll at the beginning and after a lesson
+// request, and stop when there is not more pending lessons.
+
+// Keep track of polling interval
+let pollingInterval = null;
+
+function startPolling() {
+    // Clear any existing interval first
+    stopPolling();
+    
+    // Immediately check for pending lessons
+    updatePendingLessons();
+    
+    // Start the polling, every 5s
+    pollingInterval = setInterval(updatePendingLessons, 5000);
+}
+
+function stopPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+}
+
 function showRequestModal() {
     document.getElementById('requestModal').classList.remove('hidden');
+    // Start polling when modal is shown
+    startPolling();
 }
 
 function hideRequestModal() {
     document.getElementById('requestModal').classList.add('hidden');
 }
 
-
 function updatePendingLessons() {
     const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    // TODO: the csrf here might not actually be needed
+    
     fetch('{% url "get_pending_lessons" %}', {
         method: 'GET',
         headers: {
@@ -142,17 +167,42 @@ function updatePendingLessons() {
 
             if (data.pending_lessons.length === 0) {
                 document.getElementById('pendingLessons').classList.add('hidden');
+                // Stop polling when there are no pending lessons
+                stopPolling();
             } else {
                 document.getElementById('pendingLessons').classList.remove('hidden');
             }
         });
 }
 
-// Update pending lessons every 10 seconds
-setInterval(updatePendingLessons, 10000);
+// Initial check for pending lessons when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    // Check if there are any pending lessons on page load
+    updatePendingLessons();
+});
 
-// Initial update
-updatePendingLessons();
+// Handle form submission to start polling when a new lesson is requested
+document.querySelector('form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    
+    // Get form data
+    const formData = new FormData(e.target);
+    
+    fetch('{% url "request_lesson" %}', {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin'
+    })
+        .then(response => {
+            if (response.ok) {
+                hideRequestModal();
+                // Start polling after successful submission
+                startPolling();
+                // Clear the form
+                e.target.reset();
+            }
+        });
+});
 </script>
 {% endblock %}
 
