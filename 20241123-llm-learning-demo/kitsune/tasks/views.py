@@ -1,10 +1,7 @@
-from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.models import User
-from django.http import FileResponse, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.cache import cache_control
-from django.views.decorators.http import require_GET
 
 from .celery_tasks import create_lesson_task
 from .models import Lesson, LessonRequest, UserProgress
@@ -118,8 +115,9 @@ def get_pending_lessons(request):
     return JsonResponse({"pending_lessons": lessons_data})
 
 
-@require_GET
-@cache_control(max_age=60 * 60 * 24, immutable=True, public=True)
-def favicon(request):
-    file = (settings.STATIC_ROOT.parent / "fox.png").open("rb")
-    return FileResponse(file)
+# Handled through WHITENOISE_ROOT instead
+# @require_GET
+# @cache_control(max_age=60 * 60 * 24, immutable=True, public=True)
+# def favicon(request):
+#     file = (settings.STATIC_ROOT.parent / "fox.png").open("rb")
+#     return FileResponse(file)

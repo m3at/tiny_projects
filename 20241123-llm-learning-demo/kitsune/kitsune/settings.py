@@ -223,15 +223,17 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
-
+# Also using `whitenoise` for static stuff:
+# https://whitenoise.readthedocs.io/en/stable/django.html
 STATIC_URL = "static/"
-
-# Dev
 STATICFILES_DIRS = [
     BASE_DIR / "kitsune" / "static",
 ]
-# Prod? Will just use the same way for now ¯\_(ツ)_/¯
+# For prod, generated assets will be saved here, after running `python manage.py collectstatic`
 STATIC_ROOT = BASE_DIR / "kitsune" / "static" / "collected"
+# Serve the favicon using whitenoise
+WHITENOISE_ROOT = BASE_DIR / "kitsune" / "static" / "served_at_root"
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

@@ -4,7 +4,7 @@ from tasks import views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("favicon.ico", views.favicon),
+    # path("favicon.ico", views.favicon),
     path("", views.home, name="home"),
     path("request-lesson/", views.request_lesson, name="request_lesson"),
     path("lesson/<int:lesson_id>/", views.lesson_detail, name="lesson_detail"),
