@@ -28,7 +28,7 @@ if not ENV_FILE.exists():
 
 
 class PydanticSettings(BaseSettings, case_sensitive=False):
-    model_config = SettingsConfigDict(env_file=ENV_FILE)
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
 
     DJANGO_SECRET_KEY: SecretStr
 

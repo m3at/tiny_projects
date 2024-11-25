@@ -121,11 +121,13 @@ resetmigrate: deletedb migrate  ## Remove database then run migrations
 # ── Run stuff ─────────────────────────────────────────────────────────
 
 runserver:  ## Run django server in debug mode
-	@cd kitsune && uv run python manage.py runserver
+	@# With uvicorn it'll look something like:
+	@# uv run --frozen uvicorn --host 0.0.0.0 --port 4242 --workers 2 kitsune.asgi:application
+	@cd kitsune && uv run --frozen python manage.py runserver
 
 runworker:  ## Run celery worker
 	@# cd kitsune && uv run celery -A tasks worker --loglevel=info --concurrency=1 --pool=threads --purge
-	@cd kitsune && uv run python manage.py celery_worker
+	@cd kitsune && uv run --frozen python manage.py celery_worker
 
 runflower:  ## Run flower for celery monitoring
 	@# To port foward flower:
@@ -152,7 +154,7 @@ synctoremote:  ## Sync local files to remote, except git, venv, and db files
 	@rsync --recursive --perms --whole-file --partial \
 		--compress --compress-choice=zstd --compress-level=18 \
 		--info=progress2 \
-		-e "ssh -p $(REMOTE_PORT)" \
+		-e "ssh -p $(SERVER_REMOTE_PORT)" \
 		--exclude=.git \
 		--exclude=.gitignore \
 		--exclude=.venv \
@@ -161,7 +163,7 @@ synctoremote:  ## Sync local files to remote, except git, venv, and db files
 		--exclude='*/.ruff_cache' --exclude='*/__pycache__' \
 		--exclude='*/_tmp_*' --exclude='_tmp_*' --exclude='kitsune/tasks/templates/node_modules' \
 		./ \
-		$(REMOTE_USER)@$(REMOTE_HOST):$(SERVER_REMOTE_PATH)
+		$(SERVER_REMOTE_USER)@$(SERVER_REMOTE_HOST):$(SERVER_REMOTE_PATH)
 
 
 # ┌──────────────────────────────────────────────────────────┐
