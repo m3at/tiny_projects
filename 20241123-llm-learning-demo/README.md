@@ -1,5 +1,11 @@
 Demo of a webapp using LLMs to create simple lessons on demand, then track the progress on each lesson.
 
+
+
+https://github.com/user-attachments/assets/207acc9a-4794-4ce9-971c-b58e8d64180d
+
+
+
 Standard django + celery setup, SQLite as db, redis as a broker, tailwind for css.
 
 ### Setup
