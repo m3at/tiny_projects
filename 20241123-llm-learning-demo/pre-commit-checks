@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+# Exit on any error
+set -eo pipefail
+
+# Go to the root of the repo, in case we're running from somewhere else
+repo_root=$(git rev-parse --show-cdup)
+repo_root="${repo_root:-./}"
+cd "$repo_root"
+
+# Make the virtual env path explicit
+export VIRTUAL_ENV="$PWD"/.venv
+
+# Pretty colors
+if ! [[ $- == *i* ]]
+then
+    PS4="\033[38;5;208m>>>\033[0m "
+fi
+
+# Toggle visibility of the commands we run after this
+# `set -x` enable it, `set +x` disable it, `{ set +x; } 2>/dev/null` disable it silently
+
+# Ruff
+if [[ ! -z "$CI" ]]; then
+    # In CI, check only
+    set -x
+    uv run --frozen ruff format --check
+    uv run --frozen ruff check --extend-select=I
+else
+    # Locally, fix automatically what we can
+    set -x
+    uv run --frozen ruff format
+    uv run --frozen ruff check --fix --extend-select=I
+fi
+
+# Pyright
+# The python cli wrapper (https://github.com/RobertCraigie/pyright-python) automatically
+# check for new pyright versions. Prevent this by setting those env
+# TODO: re-enable
+# { set +x; } 2>/dev/null
+# export PYRIGHT_PYTHON_FORCE_VERSION=1.1.384
+# export PYRIGHT_PYTHON_PYLANCE_VERSION="dummy"
+# export PYRIGHT_PYTHON_IGNORE_WARNINGS=true
+# set -x
+# uv run --frozen pyright --pythonpath ./.venv/bin/python --project ./pyproject.toml .
+
+exit 0

@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block title %}{{ lesson.title }} - Kitsune{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-zinc-100">{{ lesson.title }}</h1>
+        <button onclick="showChaptersModal()" 
+                class="text-orange-600 hover:text-orange-700">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+        </button>
+    </div>
+
+    <div class="bg-zinc-900 shadow rounded-lg overflow-hidden">
+        <div class="p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold">{{ current_chapter.title }}</h2>
+                <span class="text-sm text-zinc-500">Chapter {{ current_chapter.order }}/{{ total_chapters }}</span>
+            </div>
+            
+            <div class="prose max-w-none">
+                <!-- current_chapter.content|linebreaks -->
+                {{ current_chapter.content|safe }}
+            </div>
+        </div>
+
+        <div class="border-t border-zinc-950 px-4 py-3 bg-zinc-950">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-sm font-medium text-zinc-300">Progress</span>
+                <span class="text-sm font-medium text-zinc-300">{{ progress|floatformat:0 }}%</span>
+            </div>
+            <div class="h-2 bg-zinc-600 rounded-full overflow-hidden">
+                <div class="h-full bg-orange-600 rounded-full" style="width: {{ progress }}%"></div>
+            </div>
+        </div>
+
+        <div class="border-t border-zinc-950 px-4 py-3 bg-zinc-950 flex justify-between items-center">
+            {% if prev_chapter %}
+                <a href="{% url 'lesson_detail' lesson.id %}?chapter={{ prev_chapter.id }}" 
+                   class="text-orange-600 hover:text-orange-700 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                    </svg>
+                    Previous
+                </a>
+            {% else %}
+                <div></div>
+            {% endif %}
+
+            {% if next_chapter %}
+            <a href="{% url 'lesson_detail' lesson.id %}?chapter={{ next_chapter.id }}" 
+                class="text-orange-600 hover:text-orange-700 flex items-center">
+                Next
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ml-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 
+0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                </svg>
+            </a>
+            {% else %}
+            <a href="{% url 'lesson_quiz' lesson.id %}" 
+                class="bg-orange-600 px-4 py-2 rounded-md hover:bg-orange-700 animate-pulse">
+                Take Quiz
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div id="chaptersModal" class="hidden fixed inset-0 bg-zinc-600 bg-opacity-75 flex items-center justify-center">
+    <div class="bg-zinc-900 rounded-lg p-6 max-w-lg w-full mx-4">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold">Chapters</h2>
+            <button onclick="hideChaptersModal()" class="text-zinc-600 hover:text-zinc-500">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        
+        <div class="space-y-2">
+            {% for chapter in lesson.chapters.all %}
+            <a href="{% url 'lesson_detail' lesson.id %}?chapter={{ chapter.id }}"
+               class="block p-3 rounded-md hover:bg-orange-900 {% if chapter == current_chapter %}bg-zinc-950 text-orange-600{% endif %}">
+                {{ chapter.title }}
+                {% if chapter.order <= current_chapter.order %}
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline float-right text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                    </svg>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<button id="backToTopBtn" class="fixed bottom-4 right-4 bg-orange-600 text-white p-2 rounded-full shadow-lg hover:bg-orange-700 focus:outline-none transition-opacity duration-300 opacity-0">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+    </svg>
+</button>
+
+<style>
+#backToTopBtn {
+    /* transition: opacity 0.3s ease; */
+    transition: opacity 0.3s ease;
+    opacity: 0;
+    pointer-events: none; /* Prevent interaction when hidden */
+}
+
+#backToTopBtn:not(.opacity-0) {
+    opacity: 1;
+    pointer-events: auto; /* Enable interaction when visible */
+}
+
+/* 
+   orange-600 = rgb(187, 70, 10) = bb460a 
+   orange-950 = #431407
+   zinc-100 = #f4f4f5
+   zinc-900 = #18181b
+   zinc-950 = #09090b
+ */
+blockquote {
+  background: #09090b;
+  border-left: 6px solid #bb460a;
+  margin: 1.5em 0px;
+  padding: 0.5em 10px;
+}
+blockquote p {
+  display: inline;
+}
+
+</style>
+
+<script>
+    const backToTopBtn = document.getElementById('backToTopBtn');
+    let lastScrollTop = 0;
+
+    // Function to handle the visibility of the "Back to Top" button
+    function handleBackToTopVisibility() {
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
+        // Check if user scrolled up more than a few pixels
+        // if (scrollTop < lastScrollTop - 10) {
+        if (scrollTop < lastScrollTop) {
+            backToTopBtn.classList.remove('opacity-0');
+        } else {
+            backToTopBtn.classList.add('opacity-0');
+        }
+
+        // Update lastScrollTop for next scroll event
+        lastScrollTop = scrollTop;
+    }
+
+    backToTopBtn.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    window.addEventListener('scroll', handleBackToTopVisibility, false);
+
+    function showChaptersModal() {
+        document.getElementById('chaptersModal').classList.remove('hidden');
+    }
+
+    function hideChaptersModal() {
+        document.getElementById('chaptersModal').classList.add('hidden');
+    }
+</script>
+
+
+
+{% endblock %}
+
+

@@ -1,0 +1,50 @@
+[project]
+name = "llm-learning-demo"
+version = "0.1.0"
+description = "Webapp demo"
+readme = "README.md"
+requires-python = "~=3.12"  # Note: also set in `.python-version`
+authors = [
+  {name = "Paul Willot"},
+]
+dependencies = [
+    "django>=5.1",
+    "django-stubs>=5.1",
+    "httpx>=0.27.2",
+    "uvicorn[standard]>=0.32.0",
+    "celery[pydantic]>=5.5.0rc2",
+    "pydantic-settings>=2.6.0",
+    "django-celery-results>=2.5.1",
+    "django-celery-beat>=2.7.0",
+    "redis>=5.2.0",
+]
+
+# Limit to 2 OS
+environments = [
+    "sys_platform == 'darwin'",
+    "sys_platform == 'linux'",
+]
+
+[dependency-groups]
+dev = [
+    "ipython>=8.29.0",
+    "pytest>=8.3.3",
+    "pytest-django>=4.9.0",
+    "ruff>=0.8.0",
+    "celery-types>=0.22.0",
+    "flower>=2.0.1",
+]
+
+[tool.ruff]
+exclude = ["_tmp_*"]
+# Allow lines to be as long as 120.
+line-length = 120
+# Fix by default
+fix = true
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "kitsune.settings"
+python_files = ["test_*.py", "*_test.py", "testing/python/*.py", "tests.py"]
+
+[tool.django-stubs]
+django_settings_module = "kitsune.settings"

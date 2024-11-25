@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="space-y-6">
+    <button onclick="showRequestModal()" 
+            class="w-full bg-orange-600 text-zinc-100 rounded-lg p-4 shadow hover:bg-orange-700 transition-colors animate-pulse">
+        Request New Lesson
+    </button>
+
+    <div id="pendingLessons" class="space-y-4">
+        <h2 class="text-lg font-semibold text-zinc-100">Pending Lessons</h2>
+        <div id="pendingLessonsList" class="space-y-3">
+            <!-- Pending lessons will be dynamically inserted here -->
+        </div>
+    </div>
+
+    {% if ongoing_lessons %}
+    <div class="space-y-4">
+        <h2 class="text-lg font-semibold text-gray-100">Ongoing Lessons</h2>
+        <div class="space-y-3">
+            {% for progress in ongoing_lessons %}
+            <a href="{% url 'lesson_detail' progress.lesson.id %}" 
+               class="block bg-zinc-900 rounded-lg shadow p-4 hover:shadow-md transition-shadow">
+                <h3 class="font-medium text-zinc-100">{{ progress.lesson.title }}</h3>
+                <p class="text-sm text-gray-500 mt-1">{{ progress.lesson.summary }}</p>
+                <div class="mt-2 h-2 bg-zinc-600 rounded-full overflow-hidden">
+                    <div class="h-full bg-orange-600 rounded-full" 
+                         style="width: {% widthratio progress.current_chapter.order progress.lesson.chapters.count 100 %}%"></div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if available_lessons %}
+    <div class="space-y-4">
+        <h2 class="text-lg font-semibold text-zinc-100">Available Lessons</h2>
+        <div class="space-y-3">
+            {% for lesson in available_lessons %}
+            <a href="{% url 'lesson_detail' lesson.id %}" 
+               class="block bg-zinc-900 rounded-lg shadow p-4 hover:shadow-md transition-shadow">
+                <h3 class="font-medium text-zinc-100">{{ lesson.title }}</h3>
+                <p class="text-sm text-gray-500 mt-1">{{ lesson.summary }}</p>
+                <div class="mt-2 text-sm text-gray-500">
+                    {{ lesson.chapters.count }} chapters
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if completed_lessons %}
+    <div class="space-y-4">
+        <h2 class="text-lg font-semibold text-zinc-100">Completed Lessons</h2>
+        <div class="space-y-3">
+            {% for progress in completed_lessons %}
+            <a href="{% url 'lesson_detail' progress.lesson.id %}" 
+               class="block bg-zinc-900 rounded-lg shadow p-4 hover:shadow-md transition-shadow">
+                <div class="flex justify-between items-center">
+                    <h3 class="font-medium text-zinc-100">{{ progress.lesson.title }}</h3>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <p class="text-sm text-gray-500 mt-1">{{ progress.lesson.summary }}</p>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div id="requestModal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+    <div class="bg-zinc-900 rounded-lg p-6 max-w-lg w-full mx-4">
+        <h2 class="text-lg font-semibold mb-4">Request New Lesson</h2>
+        <form method="post" action="{% url 'request_lesson' %}" class="space-y-4">
+            {% csrf_token %}
+            <div>
+                <label class="block text-sm font-medium text-gray-300">Title</label>
+                <input type="text" name="title" required
+                       placeholder="e.g., How to surf if you don't have legs"
+                       class="mt-1 p-1.5 block w-full rounded-md border-gray-300 bg-zinc-700 shadow-sm focus:border-orange-600 focus:ring-orange-600 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300">Description</label>
+                <textarea name="description" rows="4" required
+                          placeholder="e.g., A beginner-friendly lesson covering how to surf for people who only want to ride using their upper body. Because why not."
+                          class="mt-1 p-1.5 block w-full rounded-md border-gray-300 bg-zinc-700 shadow-sm focus:border-orange-600 focus:ring-orange-600 outline-none"></textarea>
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button type="button" onclick="hideRequestModal()"
+                        class="px-4 py-2 text-sm font-medium text-gray-100 bg-zinc-600 border border-zinc-950 rounded-md hover:bg-zinc-700">
+                    Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-2 text-sm font-medium text-zinc-100 bg-orange-600 rounded-md hover:bg-orange-700">
+                    Submit
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showRequestModal() {
+    document.getElementById('requestModal').classList.remove('hidden');
+}
+
+function hideRequestModal() {
+    document.getElementById('requestModal').classList.add('hidden');
+}
+
+
+function updatePendingLessons() {
+    const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    // TODO: the csrf here might not actually be needed
+    fetch('{% url "get_pending_lessons" %}', {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': csrftoken,
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'same-origin'
+    })
+        .then(response => response.json())
+        .then(data => {
+            const pendingLessonsList = document.getElementById('pendingLessonsList');
+            pendingLessonsList.innerHTML = '';
+            
+            data.pending_lessons.forEach(lesson => {
+                const lessonElement = document.createElement('div');
+                lessonElement.className = 'block bg-zinc-900 rounded-lg shadow p-4';
+                lessonElement.innerHTML = `
+                    <h3 class="font-medium text-zinc-100">${lesson.title}</h3>
+                    <p class="text-sm text-gray-500 mt-1">${lesson.description}</p>
+                    <p class="text-sm text-orange-600 mt-2">Status: ${lesson.status}</p>
+                `;
+                pendingLessonsList.appendChild(lessonElement);
+            });
+
+            if (data.pending_lessons.length === 0) {
+                document.getElementById('pendingLessons').classList.add('hidden');
+            } else {
+                document.getElementById('pendingLessons').classList.remove('hidden');
+            }
+        });
+}
+
+// Update pending lessons every 10 seconds
+setInterval(updatePendingLessons, 10000);
+
+// Initial update
+updatePendingLessons();
+</script>
+{% endblock %}
+

@@ -1,0 +1,16 @@
+# Env
+.env
+
+# Package manager. It's good practice to track that but meh
+uv.lock
+
+# Generated python stuff
+__pycache__
+.ipynb_checkpoints
+
+# DB
+db_mount/db.*
+
+# NPM stuff for tailwind
+kitsune/tasks/templates/package-lock.json
+kitsune/tasks/templates/node_modules

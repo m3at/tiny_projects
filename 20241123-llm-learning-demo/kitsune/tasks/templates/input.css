@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Set all text by default to an almost white color */
+html {
+  @apply text-zinc-100;
+}
