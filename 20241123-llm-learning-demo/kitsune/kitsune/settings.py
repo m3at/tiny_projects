@@ -84,44 +84,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://kitsune.paulw.tokyo",
 ]
 
-
-# Needed for the form
-# TODO: seems wrong, rtfm
-# CORS_ALLOWED_ORIGINS = [
-#     "https://kitsune.paulw.tokyo",
-#     # "demo.paulw.tokyo",
-# ]
-#
-#
-# # Might not be needed?
-# CORS_ALLOW_CREDENTIALS = True
-# CORS_ALLOW_METHODS = [
-#     "DELETE",
-#     "GET",
-#     "OPTIONS",
-#     "PATCH",
-#     "POST",
-#     "PUT",
-# ]
-# CORS_ALLOW_HEADERS = [
-#     "accept",
-#     "accept-encoding",
-#     "authorization",
-#     "content-type",
-#     "dnt",
-#     "origin",
-#     "user-agent",
-#     "x-csrftoken",
-#     "x-requested-with",
-# ]
-
-
-# Auth
-# AUTH_USER_MODEL = "tasks.User"
-
-
 # Application definition
-
 INSTALLED_APPS = [
     # Own app
     "tasks.apps.TasksConfig",
@@ -139,10 +102,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # Required for the form to word once deployed
-    # from: django-cors-headers
-    # TODO: really needed?
-    # "corsheaders",
 ]
 
 MIDDLEWARE = [
@@ -153,9 +112,6 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    # Required for the form to word once deployed
-    # Actually no?
-    # "corsheaders.middleware.CorsMiddleware",
 ]
 
 ROOT_URLCONF = "kitsune.urls"
@@ -206,6 +162,20 @@ DATABASES = {
                 PRAGMA busy_timeout = 5000;
             """,
         },
+    }
+}
+
+
+# Caching
+# https://docs.djangoproject.com/en/5.1/topics/cache/
+
+CACHES = {
+    "default": {
+        # In dev, no caching. Otherwise use the default memory one. Nginx could also help, but I can't bother
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache"
+        if not DEBUG
+        else "django.core.cache.backends.dummy.DummyCache",
+        "TIMEOUT": 1800,  # cache retention in seconds, 30min. Default to 300=5min
     }
 }
 
