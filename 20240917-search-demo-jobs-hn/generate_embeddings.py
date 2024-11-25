@@ -10,7 +10,9 @@ from itertools import islice
 from pathlib import Path
 from typing import Literal
 
+import bm25s
 import httpx
+import Stemmer
 from pydantic import BaseModel
 from qdrant_client import QdrantClient, models
 from rich.progress import track
@@ -85,7 +87,7 @@ def batched(iterable, n):
         yield batch
 
 
-def main() -> None:
+def generate_qdrant() -> None:
     logger.info("Loading data")
 
     _metadata = get_data()
@@ -154,6 +156,66 @@ def main() -> None:
         logger.debug(f"score: {hit.score:.4f}\n{s}")
 
     logger.info("Done")
+
+
+def generate_bm25() -> None:
+    # TODO: load only once
+    logger.info("Loading data")
+    _metadata = get_data()
+    docs = [r.hn_text for r in _metadata]
+    # metadata = [m.model_dump() for m in _metadata]
+
+    logger.info("Stem + BM25")
+    # TODO: pre-process text to prevent warnings like:
+    # SyntaxWarning: invalid escape sequence '\w'
+    stemmer = Stemmer.Stemmer("english")
+    corpus_tokens = bm25s.tokenize(docs, stopwords="en", stemmer=stemmer)
+    retriever = bm25s.BM25()
+    retriever.index(corpus_tokens)
+
+    logger.info("Test query")
+    query = "alien invasion"
+    query_tokens = bm25s.tokenize(query, stemmer=stemmer)
+
+    # Get top-k results as a tuple of (doc ids, scores). Both are arrays of shape (n_queries, k)
+    results, scores = retriever.retrieve(query_tokens, corpus=docs, k=2)
+
+    for i in range(results.shape[1]):
+        doc, score = results[0, i], scores[0, i]
+        print(f"Rank {i+1} (score: {score:.2f}): {doc}")
+
+    # Save the arrays to a directory
+    retriever.save("bm25_index")
+
+
+def infer_bm25() -> None:
+    logger.info("Checking BM25 inference")
+    # At inference:
+    # import bm25s
+    # import Stemmer
+    retriever = bm25s.BM25.load("bm25_index", load_corpus=False)
+    stemmer = Stemmer.Stemmer("english")
+
+    query = "alien invasion"
+    query_tokens = bm25s.tokenize(query, stemmer=stemmer)
+    # Scores are sorted from higher (most relevant) to lover (least relevant)
+    # Shape: indexes: list[list[int]] , scores: list[list[float]]
+    indexes, scores = retriever.retrieve(query_tokens, k=5)
+    logger.debug(f"Indexes: {indexes[0]}")
+    logger.debug(f"Scores: {scores[0].round(3)}")
+
+    # DEBUG
+    # client = QdrantClient(path="db.qdrant")
+    # collection_name = "hn_jobs"
+    # rrr = client.retrieve(collection_name, indexes[0].tolist())
+    # # print(rrr)
+    # print([x.payload["hn_text"] for x in rrr])
+
+
+def main() -> None:
+    # generate_qdrant()
+    # generate_bm25()
+    infer_bm25()
 
 
 if __name__ == "__main__":

@@ -4,13 +4,28 @@ import argparse
 import logging
 import sys
 
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer  # type:ignore
 
 logger = logging.getLogger("base")
 
 
 def main() -> None:
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-1.5B")
+    is_gemma = False
+    # tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-1.5B")
+
+    # from pathlib import Path
+    # access_token = (Path.home() / ".ssh" / "huggingface_load_models").read_text()
+    # tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", access_token = access_token)
+    # Use a clone instead of the official because it requires login and it's annoying 🤷
+    tokenizer = AutoTokenizer.from_pretrained("unsloth/Llama-3.2-1B-Instruct")
+
+    # Does not support "system" instructs
+    # tokenizer = AutoTokenizer.from_pretrained("unsloth/gemma-2-2b-it")
+    # is_gemma = True
+
+    # 5 examples of 3 augmentations each seems enough (form a feeling)
+    # nb_augs, nb_examples = 3, 5
+    nb_augs, nb_examples = 4, 10
 
     sample_completions = """\
 Software engineer jobs in New York
@@ -73,16 +88,24 @@ startup project manager openings
 agile project manager positions in tech
 tech startup PM job opportunities"""
 
-    # 5 examples of 3 augmentations each seems enough (form a feeling)
-    nb_augs = 3
-    nb_examples = 5
-
-    messages = [
-        {
-            "role": "system",
-            "content": f"You are a query augmentation engine, part of a job board. You augment queries to increase the chances of a search match. You write exactly {nb_augs} augmentations.",
-        },
-    ]
+    if is_gemma:
+        messages = [
+            {
+                "role": "user",
+                "content": f"You are a query augmentation engine, part of a job board. You augment queries to increase the chances of a search match. You write exactly {nb_augs} augmentations.",
+            },
+            {
+                "role": "assistant",
+                "content": "",
+            },
+        ]
+    else:
+        messages = [
+            {
+                "role": "system",
+                "content": f"You are a query augmentation engine, part of a job board. You augment queries to increase the chances of a search match. You write exactly {nb_augs} augmentations.",
+            },
+        ]
 
     for row in sample_completions.split("\n\n")[:nb_examples]:
         query, *rest = row.split("\n")

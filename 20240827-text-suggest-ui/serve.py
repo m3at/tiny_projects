@@ -1,9 +1,9 @@
 import logging
 import os
-from pathlib import Path
-from typing import Final, Tuple
 from enum import Enum
 from functools import lru_cache
+from pathlib import Path
+from typing import Final, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,10 +95,10 @@ SYSTEM_PROMPTS = {
 You are an expert writter, proficient in British English, fixing minor issues in a draft.
 You don't add any comments or remark, but only rewrite the source text.
 Rewrite the given content to improve grammar and fix spelling mistakes. Alter as little as necessary. Don't nitpick.""",
-#     CorrectionPrompt.more: """\
-# You are an expert writter, proficient in British English, improving a draft.
-# You don't add any comments or remark, but only rewrite the source text.
-# Rewrite the given content to improve grammar and fix spelling mistakes. Alter as little as necessary.""",
+    #     CorrectionPrompt.more: """\
+    # You are an expert writter, proficient in British English, improving a draft.
+    # You don't add any comments or remark, but only rewrite the source text.
+    # Rewrite the given content to improve grammar and fix spelling mistakes. Alter as little as necessary.""",
     CorrectionPrompt.aggressive: """\
 You are an expert writter, proficient in British English, improving a draft.
 You don't add any comments or remark, but only rewrite the source text.
@@ -111,9 +111,9 @@ You are a professional translator, interpreting into idiomatic English.
 In the context of an academic essay, translate the given text into English, without preamble or comments. Prefer British spelling.""",
 }
 
+
 @lru_cache(maxsize=64)
 def get_llm_pred(original: str, correction: CorrectionPrompt) -> str:
-
     completion = client.chat.completions.create(
         model=MODEL,
         max_tokens=16382,
