@@ -98,7 +98,10 @@ precommit:  ## Manually run the precommit hook
 preparecss:  ## Prepare css from the templated html files
 	@# This is NOT the way, but meh
 	@cd kitsune/tasks/templates && \
-		npx tailwindcss -i ./input.css --minify -o ../../static/tailwind_min.css
+		NODE_ENV=production npx tailwindcss -i ./input.css --minify -o ../../static/tailwind_min.css
+	@# Copy to static dir
+	@cd kitsune && \
+		uv run --frozen python manage.py collectstatic --clear --noinput
 
 
 deletedb:
@@ -111,7 +114,7 @@ migrate:  ## Run migrations
 		uv run --frozen python manage.py migrate --noinput && \
 		uv run --frozen python manage.py createuser && \
 		uv run --frozen python manage.py populate && \
-		uv run --frozen python manage.py collectstatic --noinput && \
+		uv run --frozen python manage.py collectstatic --clear --noinput && \
 		DJANGO_SUPERUSER_PASSWORD=$(DJANGO_ADMIN_PASSWORD) uv run python manage.py createsuperuser --noinput \
 		    --username $(DJANGO_ADMIN_USERNAME) --email $(DJANGO_ADMIN_USERNAME)@test.example --verbosity 0 2>/dev/null || true
 
@@ -122,9 +125,21 @@ resetmigrate: deletedb migrate  ## Remove database then run migrations
 # ── Run stuff ─────────────────────────────────────────────────────────
 
 runserver:  ## Run django server in debug mode
+	@# Interestingly, and contrary to the benchmarks I see, uvicorn seems faster than granian. Wsgi is faster than asgi. Odd as uvicorn's wsgi implem is noted as depreceated? Can hit 1000rps no problem though
+	@# Might need to test on linux
+	@# Seems promising but not quite mature enough, or need to do some things on django side.
 	@# With uvicorn it'll look something like:
-	@# uv run --frozen uvicorn --host 0.0.0.0 --port 4242 --workers 2 kitsune.asgi:application
+	@# uv run --frozen uvicorn --interface wsgi --host 0.0.0.0 --port 4242 --log-level warning --workers 2 kitsune.wsgi:application
+	@# Granian is similar, with the extra --opt
+	@# uv run --frozen granian --interface wsgi --host 127.0.0.1 --port 8000 --workers 2 --opt kitsune.wsgi:application
 	@cd kitsune && uv run --frozen python manage.py runserver
+
+runuvicorn:
+	cd kitsune && uv run --frozen \
+		uvicorn \
+		--host 0.0.0.0 --port 10042 --log-level warning \
+		--workers 2 \
+		--interface wsgi kitsune.wsgi:application
 
 runworker:  ## Run celery worker
 	@# cd kitsune && uv run celery -A tasks worker --loglevel=info --concurrency=1 --pool=threads --purge

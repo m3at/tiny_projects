@@ -8,6 +8,8 @@ https://github.com/user-attachments/assets/207acc9a-4794-4ce9-971c-b58e8d64180d
 
 Standard django + celery setup, SQLite as db, redis as a broker, tailwind for css.
 
+More for exploration than any actual need, also added [django-minify-html](https://github.com/adamchainz/django-minify-html) to minify the pages and [whitenoise](https://github.com/evansd/whitenoise) for direct static file serving.
+
 ### Setup
 
 This uses [uv](https://docs.astral.sh/uv/) as a package manager (require version >= 0.5.4), and common tools like `make`, `curl`, `ssh` (or `mosh`) and `rsync`.

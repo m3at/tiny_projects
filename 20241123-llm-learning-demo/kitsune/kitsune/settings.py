@@ -102,13 +102,17 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Minify html
+    "django_minify_html",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Minify html first
+    "django_minify_html.middleware.MinifyHtmlMiddleware",
     # Use the `whitenoise` package to take care of staticfile serving, for simplicity
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    #
+    # Builtins
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",

@@ -113,11 +113,3 @@ def get_pending_lessons(request):
         for lesson in pending_lessons
     ]
     return JsonResponse({"pending_lessons": lessons_data})
-
-
-# Handled through WHITENOISE_ROOT instead
-# @require_GET
-# @cache_control(max_age=60 * 60 * 24, immutable=True, public=True)
-# def favicon(request):
-#     file = (settings.STATIC_ROOT.parent / "fox.png").open("rb")
-#     return FileResponse(file)
