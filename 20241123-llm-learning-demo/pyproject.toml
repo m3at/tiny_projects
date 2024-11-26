@@ -19,6 +19,7 @@ dependencies = [
     "redis>=5.2.0",
     "whitenoise[brotli]>=6.8.2",
     "django-minify-html>=1.11.0",
+    "openai>=1.55.1",
 ]
 
 # Limit to 2 OS

@@ -2,7 +2,7 @@ import logging
 
 from celery import shared_task
 
-from .content_generator import generate_lesson
+from .content_generator import generate_lesson_openai
 from .models import LessonRequest
 
 logger = logging.getLogger("kitsune." + __file__)
@@ -20,7 +20,8 @@ def create_lesson_task(lesson_request_id):
         lesson_request.status = "creating"
         lesson_request.save()
 
-        generate_lesson(title=lesson_request.title, description=lesson_request.description)
+        # generate_lesson(title=lesson_request.title, description=lesson_request.description)
+        generate_lesson_openai(title=lesson_request.title, description=lesson_request.description)
 
         lesson_request.status = "approved"
         lesson_request.save()

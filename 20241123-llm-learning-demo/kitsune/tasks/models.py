@@ -35,6 +35,7 @@ class UserProgress(models.Model):
 class Question(models.Model):
     lesson = models.ForeignKey(Lesson, related_name="questions", on_delete=models.CASCADE)
     text = models.TextField()
+    answer = models.TextField()
     order = models.IntegerField(default=0)
 
     class Meta:
@@ -43,8 +44,8 @@ class Question(models.Model):
 
 class LessonRequest(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    title = models.CharField(max_length=512)
     description = models.TextField()
+    title = models.CharField(max_length=512, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(
         max_length=20,
