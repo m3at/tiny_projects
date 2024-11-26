@@ -134,10 +134,11 @@ runserver:  ## Run django server in debug mode
 	@# uv run --frozen granian --interface wsgi --host 127.0.0.1 --port 8000 --workers 2 --opt kitsune.wsgi:application
 	@cd kitsune && uv run --frozen python manage.py runserver
 
+UVICORN_PORT := 10042
 runuvicorn:
 	cd kitsune && uv run --frozen \
 		uvicorn \
-		--host 0.0.0.0 --port 10042 --log-level warning \
+		--host 0.0.0.0 --port $(UVICORN_PORT) --log-level warning \
 		--workers 2 \
 		--interface wsgi kitsune.wsgi:application
 

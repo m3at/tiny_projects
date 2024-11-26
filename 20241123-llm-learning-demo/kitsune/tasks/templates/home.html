@@ -7,7 +7,7 @@
         Request New Lesson
     </button>
 
-    <div id="pendingLessons" class="space-y-4">
+    <div id="pendingLessons" class="space-y-4 hidden">
         <h2 class="text-lg font-semibold text-zinc-100">Pending Lessons</h2>
         <div id="pendingLessonsList" class="space-y-3">
             <!-- Pending lessons will be dynamically inserted here -->
@@ -169,11 +169,14 @@ function updatePendingLessons() {
                 document.getElementById('pendingLessons').classList.add('hidden');
                 // Stop polling when there are no pending lessons
                 stopPolling();
+                
+                // TODO: find a clean way to refresh available lessons once there's no more pending ones
             } else {
                 document.getElementById('pendingLessons').classList.remove('hidden');
             }
         });
 }
+
 
 // Initial check for pending lessons when the page loads
 document.addEventListener('DOMContentLoaded', () => {
