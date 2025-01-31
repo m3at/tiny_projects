@@ -99,7 +99,8 @@ preparecss:  ## Prepare css from the templated html files
 	@# This is NOT the way, but meh
 	@cd kitsune/tasks/templates && \
 		NODE_ENV=production npx tailwindcss -i ./input.css --minify -o ../../static/tailwind_min.css
-	@# Copy to static dir
+	@# Copy to static dir, but delete dirs first, as somehow things are kept?
+	@rm -rf kitsune/static/collected/ || true
 	@cd kitsune && \
 		uv run --frozen python manage.py collectstatic --clear --noinput
 
@@ -114,6 +115,7 @@ migrate:  ## Run migrations
 		uv run --frozen python manage.py migrate --noinput && \
 		uv run --frozen python manage.py createuser && \
 		uv run --frozen python manage.py populate && \
+		rm -rf kitsune/static/collected/ || true && \
 		uv run --frozen python manage.py collectstatic --clear --noinput && \
 		DJANGO_SUPERUSER_PASSWORD=$(DJANGO_ADMIN_PASSWORD) uv run python manage.py createsuperuser --noinput \
 		    --username $(DJANGO_ADMIN_USERNAME) --email $(DJANGO_ADMIN_USERNAME)@test.example --verbosity 0 2>/dev/null || true

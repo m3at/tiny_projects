@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robotic Arm Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+          darkMode: 'class',
+          theme: {
+            extend: {
+              colors: {
+                'dark-bg': '#121212',
+                'dark-fg': '#f0f0f0',
+                'dark-control-bg': '#1e1e1e',
+                'dark-control-fg': '#ddd',
+                'dark-border': '#333',
+              },
+            }
+          }
+        }
+      </script>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #121212;
+            color: #f0f0f0;
+            font-family: sans-serif;
+        }
+        canvas {
+            border: 1px solid #333;
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body class="bg-dark-bg text-dark-fg">
+
+    <div style="margin-top: 5vh;"></div> <div id="canvasDiv"></div>
+
+    <div id="controls-container" class="bg-dark-control-bg p-4 border border-dark-border rounded-lg shadow-md mt-4 w-[95%] max-w-[95%]">
+        <div class="flex justify-between items-center mb-4 cursor-pointer" onclick="toggleControls()">
+            <h2 class="text-xl font-semibold text-dark-control-fg">Expand controls</h2>
+            <svg id="collapse-icon" class="w-6 h-6 text-dark-control-fg transform rotate-180 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+        </div>
+        <div id="controls" class="flex flex-wrap justify-center gap-x-8 gap-y-4 pb-4 border-b border-dark-border hidden">
+            <div class="w-full border-b border-dark-border mb-4 pb-4">
+                <h3 class="text-lg font-semibold text-dark-control-fg mb-2 text-center">PID Parameters</h3>
+                <div class="pid-control">
+                    <label for="kpSlider" class="block text-sm font-medium text-dark-control-fg mb-1">Kp</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="range" id="kpSlider" min="0" max="1" step="0.01" value="0.1" class="w-32">
+                        <input type="number" id="kpInput" min="0" max="1" step="0.01" value="0.1" class="w-20 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                    </div>
+                </div>
+                <div class="pid-control">
+                    <label for="kiSlider" class="block text-sm font-medium text-dark-control-fg mb-1">Ki</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="range" id="kiSlider" min="0" max="0.01" step="0.0001" value="0.0" class="w-32">
+                        <input type="number" id="kiInput" min="0" max="0.01" step="0.0001" value="0.0" class="w-20 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                    </div>
+                </div>
+                <div class="pid-control">
+                    <label for="kdSlider" class="block text-sm font-medium text-dark-control-fg mb-1">Kd</label>
+                    <div class="flex items-center space-x-2">
+                        <input type="range" id="kdSlider" min="0" max="0.5" step="0.001" value="0.22" class="w-32">
+                        <input type="number" id="kdInput" min="0" max="0.5" step="0.001" value="0.22" class="w-20 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                    </div>
+                </div>
+            </div>
+
+            <div class="joint-limits">
+                <label class="block text-sm font-medium text-dark-control-fg mb-2 text-center">Joint 1 Limits (°)</label>
+                <div class="limit-pair flex items-center space-x-2 mb-1">
+                    <label for="joint1MinSlider" class="block text-sm font-medium text-dark-control-fg">Min</label>
+                    <input type="range" id="joint1MinSlider" min="-180" max="180" step="5" value="-150" class="w-24">
+                    <input type="number" id="joint1MinInput" min="-180" max="180" step="1" value="-150" class="w-16 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                </div>
+                <div class="limit-pair flex items-center space-x-2">
+                    <label for="joint1MaxSlider" class="block text-sm font-medium text-dark-control-fg">Max</label>
+                    <input type="range" id="joint1MaxSlider" min="-180" max="180" step="5" value="-20" class="w-24">
+                    <input type="number" id="joint1MaxInput" min="-180" max="180" step="1" value="-20" class="w-16 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                </div>
+            </div>
+
+            <div class="joint-limits">
+                <label class="block text-sm font-medium text-dark-control-fg mb-2 text-center">Joint 2 Limits (°)</label>
+                <div class="limit-pair flex items-center space-x-2 mb-1">
+                    <label for="joint2MinSlider" class="block text-sm font-medium text-dark-control-fg">Min</label>
+                    <input type="range" id="joint2MinSlider" min="-180" max="180" step="5" value="0" class="w-24">
+                    <input type="number" id="joint2MinInput" min="-180" max="180" step="1" value="0" class="w-16 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                </div>
+                <div class="limit-pair flex items-center space-x-2">
+                    <label for="joint2MaxSlider" class="block text-sm font-medium text-dark-control-fg">Max</label>
+                    <input type="range" id="joint2MaxSlider" min="-180" max="180" step="5" value="155" class="w-24">
+                    <input type="number" id="joint2MaxInput" min="-180" max="180" step="1" value="155" class="w-16 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                </div>
+            </div>
+
+            <div class="joint-limits">
+                <label class="block text-sm font-medium text-dark-control-fg mb-2 text-center">Joint 3 Limits (°)</label>
+                <div class="limit-pair flex items-center space-x-2 mb-1">
+                    <label for="joint3MinSlider" class="block text-sm font-medium text-dark-control-fg">Min</label>
+                    <input type="range" id="joint3MinSlider" min="-180" max="180" step="5" value="0" class="w-24">
+                    <input type="number" id="joint3MinInput" min="-180" max="180" step="1" value="0" class="w-16 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                </div>
+                <div class="limit-pair flex items-center space-x-2">
+                    <label for="joint3MaxSlider" class="block text-sm font-medium text-dark-control-fg">Max</label>
+                    <input type="range" id="joint3MaxSlider" min="-180" max="180" step="5" value="155" class="w-24">
+                    <input type="number" id="joint3MaxInput" min="-180" max="180" step="1" value="155" class="w-16 p-1 text-sm rounded text-dark-fg bg-dark-bg border border-dark-border">
+                </div>
+            </div>
+        </div>
+        <div id="action-buttons" class="flex justify-center space-x-4 mt-4">
+            <button id="resetButton" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Reset Scene</button>
+            <button id="createBallButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Create Ball</button>
+            <button id="createBoxButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Create Cube</button>
+        </div>
+    </div>
+    <script>
+        const controlsDiv = document.getElementById('controls');
+        const collapseIcon = document.getElementById('collapse-icon');
+        let controlsVisible = false;
+
+        function toggleControls() {
+            controlsVisible = !controlsVisible;
+            if (controlsVisible) {
+                controlsDiv.classList.remove('hidden');
+                collapseIcon.classList.remove('rotate-180');
+            } else {
+                controlsDiv.classList.add('hidden');
+                collapseIcon.classList.add('rotate-180');
+            }
+        }
+
+        toggleControls();
+    </script>
+    <!--<script src="p5.js"></script>-->
+    <!--<script src="matter.js"></script>-->
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+
+    <!--<script src="sketch.js"></script>-->
+<script>
+
+let engine, world;
+let ground, platform, cube, greenBall;
+let grabbedCube = null;
+let grabbedBall = null;
+let gripperClosed = false;
+let justClosedGripper = false;
+
+const ARM_SEGMENTS = [180, 130, 100];
+const SEGMENT_COLORS = ['#FF0000', '#FFA500', '#FFD700'];
+const ANCHOR = { x: 0, y: 0 };
+const GRAB_THRESHOLD = 30;
+const LAST_SEGMENT_VISUAL_OFFSET = 26;
+const GRIPPER_OFFSET = 5;
+
+const MAX_JOINT_ACCELERATION = 0.03;
+const MAX_JOINT_VELOCITY = 0.1;
+const DAMPING_FACTOR = 0.5;
+const IK_ITERATIONS = 30;
+
+// PID Gains
+let KP, KI, KD;
+
+let jointAngles = [0, 0, 0];
+let jointVelocities = [0, 0, 0];
+let targetAngles = [0, 0, 0];
+
+let integralError = [0, 0, 0];
+let previousError = [0, 0, 0];
+
+// UI stuff
+let kpSlider, kiSlider, kdSlider;
+let kpInput, kiInput, kdInput;
+let resetButton;
+let createBallButton, createBoxButton;
+
+// Joint limit UI elements and variables
+let joint1MinSlider, joint1MaxSlider, joint2MinSlider, joint2MaxSlider, joint3MinSlider, joint3MaxSlider;
+let joint1MinInput, joint1MaxInput, joint2MinInput, joint2MaxInput, joint3MinInput, joint3MaxInput;
+let jointAngleLimits = [[-150, -20], [0, 155], [0, 155]];
+
+// Scene objects arrays
+let armBase;
+let balls = [];
+let cubes = [];
+
+
+class Block {
+    /** Represents a rectangular block in the physics world. */
+    constructor(world, options, matterOptions) {
+        this.body = Matter.Bodies.rectangle(options.x, options.y, options.w, options.h, matterOptions);
+        Matter.World.add(world, this.body);
+        this.w = options.w;
+        this.h = options.h;
+        this.color = options.color;
+    }
+
+    /** Draws the block on the canvas. */
+    draw() {
+        const pos = this.body.position;
+        const angle = this.body.angle;
+
+        push();
+        translate(pos.x, pos.y);
+        rotate(angle);
+        rectMode(CENTER);
+        fill(this.color);
+        rect(0, 0, this.w, this.h);
+        pop();
+    }
+}
+
+class Ball {
+    /** Represents a circular ball in the physics world. */
+    constructor(world, options, matterOptions) {
+        this.body = Matter.Bodies.circle(options.x, options.y, options.r, matterOptions);
+        Matter.World.add(world, this.body);
+        this.r = options.r;
+        this.color = options.color;
+    }
+
+    /** Draws the ball on the canvas. */
+    draw() {
+        const pos = this.body.position;
+        const angle = this.body.angle;
+
+        push();
+        translate(pos.x, pos.y);
+        rotate(angle);
+        ellipseMode(RADIUS);
+        fill(this.color);
+        circle(0, 0, this.r);
+        pop();
+    }
+}
+
+
+/** Setup function to initialize the p5.js sketch and Matter.js engine. */
+function setup() {
+    const canvas = createCanvas(800, 500);
+    canvas.parent('canvasDiv');
+
+    ANCHOR.x = width / 4;
+    ANCHOR.y = height - 50;
+
+    engine = Matter.Engine.create();
+    world = engine.world;
+    engine.gravity.scale = 0.001;
+
+    ground = new Block(world, { x: width/2, y: height-10, w: width, h: 20, color: '#666' }, { isStatic: true });
+    platform = new Block(world, { x: width/2 + 200, y: height-150, w: 200, h: 20, color: '#444' }, { isStatic: true });
+    cube = new Block(world, { x: width/2 - 100, y: 100, w: 30, h: 30, color: '#2196F3' }, { isStatic: false, restitution: 0.7 });
+
+    cubes.push(cube);
+
+    armBase = new Block(world, {
+        x: ANCHOR.x, y: ANCHOR.y + 50, w: 80, h: 100, color: '#888'
+    }, { isStatic: true });
+
+    greenBall = new Ball(world, {
+        x: width/2 - 150, y: 100, r: 25, color: 'green'
+    }, { isStatic: false, restitution: 0.6 });
+
+    balls.push(greenBall);
+
+
+    Matter.Runner.run(engine);
+
+    // Get UI elements
+    kpSlider = document.getElementById('kpSlider');
+    kiSlider = document.getElementById('kiSlider');
+    kdSlider = document.getElementById('kdSlider');
+    kpInput = document.getElementById('kpInput');
+    kiInput = document.getElementById('kiInput');
+    kdInput = document.getElementById('kdInput');
+    resetButton = document.getElementById('resetButton');
+    createBallButton = document.getElementById('createBallButton');
+    createBoxButton = document.getElementById('createBoxButton');
+
+    // Joint limit UI elements
+    joint1MinSlider = document.getElementById('joint1MinSlider');
+    joint1MaxSlider = document.getElementById('joint1MaxSlider');
+    joint2MinSlider = document.getElementById('joint2MinSlider');
+    joint2MaxSlider = document.getElementById('joint2MaxSlider');
+    joint3MinSlider = document.getElementById('joint3MinSlider');
+    joint3MaxSlider = document.getElementById('joint3MaxSlider');
+    joint1MinInput = document.getElementById('joint1MinInput');
+    joint1MaxInput = document.getElementById('joint1MaxInput');
+    joint2MinInput = document.getElementById('joint2MinInput');
+    joint2MaxInput = document.getElementById('joint2MaxInput');
+    joint3MinInput = document.getElementById('joint3MinInput');
+    joint3MaxInput = document.getElementById('joint3MaxInput');
+
+
+    // Initialize PID gains from input values
+    KP = parseFloat(kpInput.value);
+    KI = parseFloat(kiInput.value);
+    KD = parseFloat(kdInput.value);
+
+    // Initialize Joint Limits from input values (in degrees) and convert to radians
+    jointAngleLimits[0][0] = radians(parseFloat(joint1MinInput.value));
+    jointAngleLimits[0][1] = radians(parseFloat(joint1MaxInput.value));
+    jointAngleLimits[1][0] = radians(parseFloat(joint2MinInput.value));
+    jointAngleLimits[1][1] = radians(parseFloat(joint2MaxInput.value));
+    jointAngleLimits[2][0] = radians(parseFloat(joint3MinInput.value));
+    jointAngleLimits[2][1] = radians(parseFloat(joint3MaxInput.value));
+
+
+    // Slider and Input synchronization and update gains on change (PID)
+    kpSlider.oninput = () => { kpInput.value = kpSlider.value; KP = parseFloat(kpSlider.value); };
+    kpInput.onchange = () => { kpSlider.value = kpInput.value; KP = parseFloat(kpInput.value); };
+    kiSlider.oninput = () => { kiInput.value = kiSlider.value; KI = parseFloat(kiSlider.value); };
+    kiInput.onchange = () => { kiSlider.value = kiInput.value; KI = parseFloat(kiInput.value); };
+    kdSlider.oninput = () => { kdInput.value = kdSlider.value; KD = parseFloat(kdSlider.value); };
+    kdInput.onchange = () => { kdSlider.value = kdInput.value; KD = parseFloat(kdInput.value); };
+
+    // Slider and Input synchronization and update Joint Limits on change (Angle Limits)
+    setupLimitControl(joint1MinSlider, joint1MinInput, 0, 0);
+    setupLimitControl(joint1MaxSlider, joint1MaxInput, 0, 1);
+    setupLimitControl(joint2MinSlider, joint2MinInput, 1, 0);
+    setupLimitControl(joint2MaxSlider, joint2MaxInput, 1, 1);
+    setupLimitControl(joint3MinSlider, joint3MinInput, 2, 0);
+    setupLimitControl(joint3MaxSlider, joint3MaxInput, 2, 1);
+
+
+    resetButton.onclick = resetScene;
+    createBallButton.onclick = createNewBall;
+    createBoxButton.onclick = createNewBox;
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'r' || event.key === 'R') {
+            resetButton.click();
+        } else if (event.key === 'b' || event.key === 'B') {
+            createBallButton.click();
+        } else if (event.key === 'c' || event.key === 'C') {
+            createBoxButton.click();
+        }
+    });
+}
+
+/** Helper function to setup slider-input sync for joint limits. */
+function setupLimitControl(slider, input, jointIndex, limitIndex) {
+    slider.oninput = () => {
+        input.value = slider.value;
+        jointAngleLimits[jointIndex][limitIndex] = radians(parseFloat(slider.value));
+    };
+    input.onchange = () => {
+        slider.value = input.value;
+        jointAngleLimits[jointIndex][limitIndex] = radians(parseFloat(input.value));
+    };
+}
+
+
+/** Draw function, executed every frame to update the scene. */
+function draw() {
+    // https://p5js.org/reference/p5/background/
+    background(180); // A light gray
+
+    Matter.Engine.update(engine, 16);
+
+    ground.draw();
+    platform.draw();
+
+    for (let cube of cubes) {
+        cube.draw();
+    }
+    for (let ball of balls) {
+        ball.draw();
+    }
+
+    armBase.draw();
+
+    const mouseTarget = createVector(mouseX, mouseY);
+    targetAngles = calculateIK(mouseTarget);
+
+    // PID Control for each joint
+    for (let i = 0; i < jointAngles.length; i++) {
+        let angleError = targetAngles[i] - jointAngles[i];
+
+        let proportionalTerm = KP * angleError;
+        integralError[i] += angleError;
+        let integralTerm = KI * integralError[i];
+        let derivativeTerm = KD * (angleError - previousError[i]);
+        previousError[i] = angleError;
+
+        let desiredVelocity = proportionalTerm + integralTerm + derivativeTerm;
+        let velocityChange = desiredVelocity - jointVelocities[i];
+
+        if (abs(velocityChange) > MAX_JOINT_ACCELERATION) {
+            velocityChange = Math.sign(velocityChange) * MAX_JOINT_ACCELERATION;
+        }
+
+        jointVelocities[i] += velocityChange;
+        jointAngles[i] += jointVelocities[i];
+
+        jointVelocities[i] = Math.max(-MAX_JOINT_VELOCITY, Math.min(jointVelocities[i], MAX_JOINT_VELOCITY));
+    }
+
+
+    drawArm(jointAngles);
+
+    const gripperPos = getGripperPosition(jointAngles);
+
+    let objectGrabbedThisFrame = false;
+
+    if (justClosedGripper && !grabbedBall) {
+        for (let cube of cubes) {
+            if (!grabbedCube) {
+                const cubePos = cube.body.position;
+                let dCube = dist(gripperPos.x, gripperPos.y, cubePos.x, cubePos.y);
+                if (dCube < GRAB_THRESHOLD) {
+                    grabbedCube = cube;
+                    Matter.Body.setStatic(cube.body, true);
+                    objectGrabbedThisFrame = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (justClosedGripper && !grabbedCube && !objectGrabbedThisFrame) {
+        for (let ball of balls) {
+            if (!grabbedBall) {
+                const ballPos = ball.body.position;
+                let dBall = dist(gripperPos.x, gripperPos.y, ballPos.x, ballPos.y);
+                if (dBall < GRAB_THRESHOLD) {
+                    grabbedBall = ball;
+                    Matter.Body.setStatic(ball.body, true);
+                    objectGrabbedThisFrame = true;
+                    break;
+                }
+            }
+        }
+    }
+
+
+    if (grabbedCube) {
+        Matter.Body.setPosition(grabbedCube.body, gripperPos);
+    }
+    if (grabbedBall) {
+        Matter.Body.setPosition(grabbedBall.body, gripperPos);
+    }
+
+
+    justClosedGripper = false;
+}
+
+
+/** Handles mouse pressed events for gripper control and object interaction. */
+function mousePressed() {
+    gripperClosed = !gripperClosed;
+    if (gripperClosed) {
+        justClosedGripper = true;
+    }
+
+    const gripperPos = getGripperPosition(calculateIK(createVector(mouseX, mouseY)));
+    cubes.forEach((cube, index) => {
+        const cubePos = cube.body.position;
+        const dCube = dist(gripperPos.x, gripperPos.y, cubePos.x, cubePos.y);
+        console.log(`Cube ${index+1}:`, cubePos);
+        console.log(`Distance to Cube ${index+1}:`, dCube.toFixed(1));
+    });
+    balls.forEach((ball, index) => {
+        const ballPos = ball.body.position;
+        const dBall = dist(gripperPos.x, gripperPos.y, ballPos.x, ballPos.y);
+        console.log(`Ball ${index+1}:`, ballPos);
+        console.log(`Distance to Ball ${index+1}:`, dBall.toFixed(1));
+    });
+
+
+    if (!gripperClosed) {
+        if (grabbedCube) {
+            Matter.Body.setStatic(grabbedCube.body, false);
+            grabbedCube = null;
+        }
+        if (grabbedBall) {
+            Matter.Body.setStatic(grabbedBall.body, false);
+            grabbedBall = null;
+        }
+    }
+}
+
+/** Calculates Inverse Kinematics to determine joint angles for a target position. */
+function calculateIK(target) {
+    let angles = jointAngles.slice();
+
+    for (let i = 0; i < IK_ITERATIONS; i++) {
+        let endPos = getGripperPosition(angles);
+
+        for (let j = ARM_SEGMENTS.length - 1; j >= 0; j--) {
+            const jointPos = getJointPosition(angles, j);
+            const toEnd = p5.Vector.sub(endPos, jointPos);
+            const toTarget = p5.Vector.sub(target, jointPos);
+            let angleDiff = toTarget.heading() - toEnd.heading();
+            let angleIncrement = angleDiff * DAMPING_FACTOR;
+            angles[j] += angleIncrement;
+
+            // Apply angle limits here
+            angles[j] = Math.max(jointAngleLimits[j][0], Math.min(angles[j], jointAngleLimits[j][1]));
+
+
+            endPos = getGripperPosition(angles);
+        }
+    }
+    return angles;
+}
+
+/** Gets the position of a specific joint given the joint angles. */
+function getJointPosition(angles, jointIndex) {
+    return ARM_SEGMENTS.slice(0, jointIndex).reduce((pos, len, idx) => {
+        const angle = angles.slice(0, idx+1).reduce((sum, a) => sum + a, 0);
+        return createVector(
+            pos.x + len * cos(angle),
+            pos.y + len * sin(angle)
+        );
+    }, createVector(ANCHOR.x, ANCHOR.y));
+}
+
+
+/** Draws the robotic arm on the canvas based on given joint angles. */
+function drawArm(angles) {
+    let currentPos = createVector(ANCHOR.x, ANCHOR.y);
+    let angleSum = 0;
+
+    ARM_SEGMENTS.forEach((len, i) => {
+        angleSum += angles[i];
+
+        if (i == 2) {
+            len -= LAST_SEGMENT_VISUAL_OFFSET;
+        }
+
+        const nextPos = createVector(
+            currentPos.x + len * cos(angleSum),
+            currentPos.y + len * sin(angleSum)
+        );
+
+        stroke(SEGMENT_COLORS[i]);
+        strokeWeight(13);
+        line(currentPos.x, currentPos.y, nextPos.x, nextPos.y);
+        currentPos = nextPos;
+    });
+
+    currentPos = createVector(
+        currentPos.x + GRIPPER_OFFSET * cos(angleSum),
+        currentPos.y + GRIPPER_OFFSET * sin(angleSum)
+    );
+
+    // Draw gripper
+    stroke(0);
+    strokeWeight(6);
+    const gripSize = 30;
+    const gripSegmentLength = gripSize / 2;
+    const inwardAngle = -40 * PI / 180;
+    const gripOpenAngle = gripperClosed ? PI/4 : 0;
+
+    const gripAngleBase_R = angleSum - gripOpenAngle + PI/2;
+    const gripAngleBase_L = angleSum + gripOpenAngle - PI/2;
+
+    const jointPos_R = createVector(
+        currentPos.x + gripSegmentLength * cos(gripAngleBase_R),
+        currentPos.y + gripSegmentLength * sin(gripAngleBase_R)
+    );
+    const endAngle_R = gripAngleBase_R + inwardAngle;
+    const endPos_R = createVector(
+        jointPos_R.x + gripSegmentLength * cos(endAngle_R),
+        jointPos_R.y + gripSegmentLength * sin(endAngle_R)
+    );
+
+    line(currentPos.x, currentPos.y, jointPos_R.x, jointPos_R.y);
+    line(jointPos_R.x, jointPos_R.y, endPos_R.x, endPos_R.y);
+
+
+    const jointPos_L = createVector(
+        currentPos.x + gripSegmentLength * cos(gripAngleBase_L),
+        currentPos.y + gripSegmentLength * sin(gripAngleBase_L)
+    );
+    const endAngle_L = gripAngleBase_L - inwardAngle;
+    const endPos_L = createVector(
+        jointPos_L.x + gripSegmentLength * cos(endAngle_L),
+        jointPos_L.y + gripSegmentLength * sin(endAngle_L)
+    );
+
+    line(currentPos.x, currentPos.y, jointPos_L.x, jointPos_L.y);
+    line(jointPos_L.x, jointPos_L.y, endPos_L.x, endPos_L.y);
+}
+
+/** Gets the position of the gripper (end effector) based on joint angles. */
+function getGripperPosition(angles) {
+    return ARM_SEGMENTS.reduce((pos, len, i) => {
+        const angle = angles.slice(0, i+1).reduce((sum, a) => sum + a, 0);
+        return createVector(
+            pos.x + len * cos(angle),
+            pos.y + len * sin(angle)
+        );
+    }, createVector(ANCHOR.x, ANCHOR.y));
+}
+
+/** Resets the scene to its initial state, including objects and arm position. */
+function resetScene() {
+    jointAngles = [0, 0, 0];
+    jointVelocities = [0, 0, 0];
+    integralError = [0, 0, 0];
+    previousError = [0, 0, 0];
+    cubes.forEach(cube => Matter.World.remove(world, cube.body));
+    balls.forEach(ball => Matter.World.remove(world, ball.body));
+    cubes = [];
+    balls = [];
+    grabbedCube = null;
+    grabbedBall = null;
+
+    // Create initial cube and ball after reset
+    createNewBox();
+    createNewBall();
+}
+
+
+/** Creates a new ball object at a random position in the scene. */
+function createNewBall() {
+    let newBall = new Ball(world, {
+        x: random(width/2 - 300, width/2 + 300), y: 50, r: 25, color: 'green'
+    }, { restitution: 0.6 });
+    balls.push(newBall);
+}
+
+/** Creates a new cube object at a random position in the scene. */
+function createNewBox() {
+    let newCube = new Block(world, {
+        x: random(width/2 - 300, width/2 - 50), y: 50, w: 30, h: 30, color: '#2196F3'
+    }, { restitution: 0.7 });
+    cubes.push(newCube);
+}
+
+</script>
+</body>
+</html>
