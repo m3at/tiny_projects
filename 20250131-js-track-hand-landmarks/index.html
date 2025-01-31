@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hand Tracking Recorder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #canvas-element, #video-element {
+            transform: scaleX(-1);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">Hand Tracking Recorder</h1>
+        
+        <div class="flex flex-wrap gap-4 mb-4">
+            <button id="toggleCamera" class="bg-gray-700 px-4 py-2 rounded hover:bg-gray-600">
+                👁️ Toggle Camera View
+            </button>
+            
+            <button id="recordButton" class="bg-red-600 px-4 py-2 rounded hover:bg-red-500">
+                ⏺️ Start Recording
+            </button>
+            
+            <button id="downloadButton" disabled class="bg-gray-700 px-4 py-2 rounded opacity-50">
+                ⏬ Download 0 tracks
+            </button>
+
+            <div class="flex items-center gap-2">
+                <label>Touching Threshold:</label>
+                <input type="range" id="threshold" min="0" max="0.1" step="0.005" value="0.04" 
+                       class="w-32 bg-gray-600" title="Minimum distance considered as touching">
+                <span id="thresholdValue" class="w-12">0.04</span>
+            </div>
+
+            <div id="touchStatus" class="flex items-center gap-2 px-4 bg-gray-800 rounded">
+                Touching: <span class="font-bold text-red-500">No</span>
+            </div>
+        </div>
+
+        <div class="relative w-[640px] h-[480px] bg-gray-800 rounded-lg overflow-hidden">
+            <video id="video-element" class="absolute top-0 left-0 opacity-0" width="640" height="480"></video>
+            <canvas id="canvas-element" class="absolute top-0 left-0 z-10" width="640" height="480"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        const videoElement = document.getElementById('video-element');
+        const canvasElement = document.getElementById('canvas-element');
+        const canvasCtx = canvasElement.getContext('2d');
+        let isRecording = false;
+        let tracks = [];
+        let currentTrack = null;
+        let lastResults = null;
+
+        // MediaPipe Hands initialization
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(results => {
+            lastResults = results;
+            processResults(results);
+            if (isRecording && currentTrack) {
+                recordFrame(results);
+            }
+        });
+
+        // Camera setup
+        const camera = new Camera(videoElement, {
+            onFrame: async () => await hands.send({ image: videoElement }),
+            width: 640,
+            height: 480
+        });
+
+        camera.start();
+
+        // UI Elements
+        const recordButton = document.getElementById('recordButton');
+        const downloadButton = document.getElementById('downloadButton');
+
+        // Event Listeners
+        document.getElementById('toggleCamera').addEventListener('click', toggleCamera);
+        recordButton.addEventListener('click', toggleRecording);
+        document.addEventListener('keydown', (e) => e.code === 'Space' && toggleRecording());
+        document.getElementById('threshold').addEventListener('input', updateThreshold);
+
+        // Recording functionality
+        function toggleRecording() {
+            isRecording = !isRecording;
+            
+            if (isRecording) {
+                currentTrack = {
+                    startTime: Date.now(),
+                    columns: ['timedelta', 'wrist_x', 'wrist_y', 'thumbTip_x', 'thumbTip_y', 
+                            'indexTip_x', 'indexTip_y', 'isTouching'],
+                    data: []
+                };
+                recordButton.innerHTML = '⏹️ Stop Recording';
+                recordButton.classList.replace('bg-red-600', 'bg-green-600');
+            } else {
+                if (currentTrack.data.length > 0) {
+                    tracks.push(currentTrack);
+                    updateDownloadButton();
+                }
+                currentTrack = null;
+                recordButton.innerHTML = '⏺️ Start Recording';
+                recordButton.classList.replace('bg-green-600', 'bg-red-600');
+            }
+        }
+
+        function recordFrame(results) {
+            if (!results.multiHandLandmarks?.[0]) return;
+
+            const landmarks = results.multiHandLandmarks[0];
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const threshold = parseFloat(document.getElementById('threshold').value);
+            
+            const isTouching = Math.hypot(
+                thumbTip.x - indexTip.x,
+                thumbTip.y - indexTip.y
+            ) < threshold ? 1 : 0;
+
+            currentTrack.data.push([
+                Date.now() - currentTrack.startTime,
+                parseFloat(landmarks[0].x.toFixed(6)),
+                parseFloat(landmarks[0].y.toFixed(6)),
+                parseFloat(thumbTip.x.toFixed(6)),
+                parseFloat(thumbTip.y.toFixed(6)),
+                parseFloat(indexTip.x.toFixed(6)),
+                parseFloat(indexTip.y.toFixed(6)),
+                isTouching
+            ]);
+        }
+
+        // Download functionality
+        function updateDownloadButton() {
+            const count = tracks.length;
+            downloadButton.textContent = `⏬ Download ${count} track${count !== 1 ? 's' : ''}`;
+            downloadButton.disabled = count === 0 || isRecording;
+            downloadButton.classList.toggle('opacity-50', downloadButton.disabled);
+        }
+
+        downloadButton.addEventListener('click', () => {
+            if (tracks.length === 0) return;
+            
+            const blob = new Blob([JSON.stringify(tracks)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `hand-tracks-${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            tracks = [];
+            updateDownloadButton();
+        });
+
+        // Core processing functions
+        function processResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.multiHandLandmarks) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawLandmarks(landmarks);
+                    highlightSpecificLandmarks(landmarks);
+                    checkTouchState(landmarks);
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        function drawLandmarks(landmarks) {
+            for (const landmark of landmarks) {
+                const x = landmark.x * canvasElement.width;
+                const y = landmark.y * canvasElement.height;
+                
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 3, 0, 2 * Math.PI);
+                canvasCtx.fillStyle = '#00FF00';
+                canvasCtx.fill();
+            }
+        }
+
+        function highlightSpecificLandmarks(landmarks) {
+            highlightLandmark(landmarks[0], 'red');
+            highlightLandmark(landmarks[4], 'yellow');
+            highlightLandmark(landmarks[8], 'green');
+        }
+
+        function highlightLandmark(landmark, color) {
+            const x = landmark.x * canvasElement.width;
+            const y = landmark.y * canvasElement.height;
+            
+            canvasCtx.beginPath();
+            canvasCtx.arc(x, y, 8, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = color;
+            canvasCtx.fill();
+        }
+
+        function checkTouchState(landmarks) {
+            const thumbTip = landmarks[4];
+            const indexTip = landmarks[8];
+            const threshold = parseFloat(document.getElementById('threshold').value);
+            const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+            const isTouching = distance < threshold;
+            
+            updateTouchUI(isTouching);
+        }
+
+        function updateTouchUI(touching) {
+            const statusElement = document.querySelector('#touchStatus span');
+            statusElement.textContent = touching ? 'Yes' : 'No';
+            statusElement.style.color = touching ? '#10B981' : '#EF4444';
+        }
+
+        // Utility functions
+        function toggleCamera() {
+            videoElement.style.opacity = videoElement.style.opacity === '0' ? '1' : '0';
+        }
+
+        function updateThreshold(e) {
+            document.getElementById('thresholdValue').textContent = e.target.value;
+        }
+
+        // Position logging (every 2 seconds)
+        setInterval(() => {
+            if (lastResults?.multiHandLandmarks?.[0]) {
+                const landmarks = lastResults.multiHandLandmarks[0];
+                console.log('Current positions:', {
+                    wrist: landmarks[0],
+                    thumbTip: landmarks[4],
+                    indexTip: landmarks[8]
+                });
+            }
+        }, 2000);
+    </script>
+</body>
+</html>
