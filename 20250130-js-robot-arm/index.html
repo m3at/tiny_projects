@@ -4,6 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Robotic Arm Demo</title>
+    <!--
+    Can't use the cdn for tailwind except locally. Steps:
+npm install -D tailwindcss
+npx tailwindcss init
+# Add/modify those files:
+tailwind.config.js
+```js
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./*.{html,js}"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+```
+
+input.css
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+# Then:
+npx tailwindcss -i ./input.css -o ./output.css
+# Copy the content of output.css in between <style></style> tags
+# Minify:
+cargo install minhtml
+minhtml --output index_minified.html --keep-closing-tags --minify-js --minify-css index.html
+
+    -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
