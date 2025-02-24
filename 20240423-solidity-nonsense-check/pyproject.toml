@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "20240423-solidity-nonsense-check"
+version = "0.1.0"
+description = ""
+authors = ["Paul Willot <kiwi.pwillot@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+tree-sitter-solidity = {git = "https://github.com/JoranHonig/tree-sitter-solidity"}
+tree-sitter = "^0.21.3"
+requests = "^2.31.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

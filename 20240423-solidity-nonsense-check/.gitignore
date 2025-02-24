@@ -1,2 +1,3 @@
 *.sol
 **/*.sol
+solidity/
