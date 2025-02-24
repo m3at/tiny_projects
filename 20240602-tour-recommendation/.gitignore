@@ -1,2 +1,7 @@
 data/
 db.qdrant/
+data.tar.zst
+node_modules/
+package-lock.json
+package.json
+src/theme
