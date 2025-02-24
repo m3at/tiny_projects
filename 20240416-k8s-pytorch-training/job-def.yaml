@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "m3at-train"
+spec:
+  # https://kubernetes.io/docs/concepts/workloads/controllers/job/#job-termination-and-cleanup
+  # Cleanup the pod once finished, but note that it make logs inaccessible
+  ttlSecondsAfterFinished: 30
+  template:
+    spec:
+      imagePullSecrets:
+        - name: gcr-image-puller-service-account
+      containers:
+      - name: "m3at-train"
+        image: gcr.io/CLUSTER_NAME/poc/training-image:latest
+        command: ["python3", "payload.py"]
+        # Use GPU
+        resources: 
+          limits:
+            nvidia.com/gpu: 1
+          requests:
+            nvidia.com/gpu: 1
+      restartPolicy: Never
+      # To fix GCS permission issues.
+      serviceAccount: pod-default
+      serviceAccountName: pod-default
+      # Use GPU
+      # TODO: correct node selector
+      nodeSelector:
+        TODO/machine-series: nvidia-l4
+        TODO/node-pool-id: d-gpu-l4
+      # tolerations:
+      #   - key: machine-series
+      #     operator: Equal
+      #     value: nvidia-l4
+      #     effect: NoSchedule
+      #   - key: node-pool-id
+      #     operator: Equal
+      #     value: d-gpu-l4
+      #     effect: NoSchedule
+  backoffLimit: 0
