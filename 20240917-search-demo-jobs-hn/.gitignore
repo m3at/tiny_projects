@@ -2,3 +2,7 @@ uv.lock
 db.qdrant/
 models_onnx/
 onnx-*/
+
+bm25_index/
+combined_processed.json.tar.gz
+models/
