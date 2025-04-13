@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: pgvec
+    environment:
+      POSTGRES_USER: alice
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: vecdemo
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
