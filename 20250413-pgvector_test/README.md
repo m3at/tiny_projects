@@ -21,3 +21,7 @@ Prepare the env with uv and launch the script:
 ```bash
 make setup script
 ```
+
+Should show the following:
+
+<img src="https://github.com/user-attachments/assets/dc634d97-2bbe-4a68-98e9-7f94ecf07259" width="650em">
