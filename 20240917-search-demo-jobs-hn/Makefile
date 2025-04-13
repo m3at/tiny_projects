@@ -29,6 +29,7 @@ models/gte-multilingual-reranker-base-quantized.onnx:
 
 models: models/jina-reranker-v2-base-multilingual_quantized.onnx models/gte-multilingual-reranker-base-quantized.onnx
 
+_EMBEDDING_PORT:=8989
 
 # Require compiling llamafile: https://github.com/Mozilla-Ocho/llamafile
 serve-embedding:
@@ -57,7 +58,7 @@ serve-embedding:
 	@
 	@# 96Mb. Better. ~32 rq/s
 	@# https://huggingface.co/djuna/jina-embeddings-v2-base-en-Q5_K_M-GGUF/resolve/main/jina-embeddings-v2-base-en-q5_k_m.gguf?download=true
-	llamafiler --unsecure --trust 127.0.0.1/32 --listen 8989 --gpu DISABLE --fast -m $$DIR_MLMODELS/embeddings/jina-embeddings-v2-base-en-q5_k_m.gguf
+	llamafiler --unsecure --trust 127.0.0.1/32 --listen 127.0.0.1:${_EMBEDDING_PORT} --gpu DISABLE --fast -m $$DIR_MLMODELS/embeddings/jina-embeddings-v2-base-en-q5_k_m.gguf
 
 # serve-query-augmentation-qwen:
 # 	@# 2.8 rq/s
