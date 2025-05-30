@@ -13,7 +13,8 @@ from psycopg.rows import TupleRow
 
 DB_NAME: Final[str] = "vecdemo"
 TABLE_NAME: Final[str] = "wonderland_scale"
-DIMS: Final[int] = 128
+# DIMS: Final[int] = 128
+DIMS: Final[int] = 512
 N_VECTORS: Final[int] = 100_000
 COPY_BATCH: Final[int] = 1_000  # rows streamed per COPY batch
 
@@ -37,7 +38,7 @@ def prepare() -> None:
     conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
     register_vector(conn)
 
-    logger.debug("Dropping & creating table …")
+    logger.debug("Dropping & creating table...")
     conn.execute(f"DROP TABLE IF EXISTS {TABLE_NAME}")
     conn.execute(
         f"""
@@ -54,7 +55,7 @@ def prepare() -> None:
     rng = np.random.default_rng(42)
     total_written = 0
     cur = conn.cursor()
-    logger.debug("Streaming %d rows via binary COPY …", N_VECTORS)
+    logger.debug("Streaming %d rows via binary COPY...", N_VECTORS)
     with cur.copy(f"COPY {TABLE_NAME} (content, embedding, starts_with_i) FROM STDIN WITH (FORMAT BINARY)") as cp:
         cp.set_types(["text", "vector", "boolean"])
 
@@ -87,7 +88,7 @@ def prepare() -> None:
     logger.debug("Inserted %d rows in %.2fs", total_written, time.perf_counter() - t0)
 
     # Index
-    logger.info("Building HNSW index (inner-product opclass) …")
+    logger.info("Building HNSW index (inner-product opclass)...")
     t1 = time.perf_counter()
     conn.execute(f"CREATE INDEX ON {TABLE_NAME} USING hnsw (embedding vector_ip_ops)")
     logger.debug("Index built in %.2fs", time.perf_counter() - t1)
@@ -110,13 +111,13 @@ def run_queries(sample_k: int = 5) -> None:
     LIMIT 5
     """
 
-    logger.info("Running %d similarity lookups …", sample_k)
+    logger.info("Running %d similarity lookups...", sample_k)
     for emb, original_text in rows:
         t0 = time.perf_counter()
         nearest = conn.execute(sql, (np.array(emb),)).fetchall()
         took = (time.perf_counter() - t0) * 1_000
 
-        logger.info("Query for “%s…” (%.1f ms)", original_text[:20], took)
+        logger.info("Query for “%s...", original_text[:20], took)
         for s, txt in nearest:
             logger.debug("  %7.3f  %s", s, txt)
 
