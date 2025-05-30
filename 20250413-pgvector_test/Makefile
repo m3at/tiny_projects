@@ -68,6 +68,9 @@ psql:  ## psql repl
 script:  ## Interract with the db
 	@UV_ENV_FILE=.env uv run --frozen script.py
 
+scale:  ## Small scaling test on 100k random vectors
+	@UV_ENV_FILE=.env uv run --frozen scale.py
+
 
 # ┌──────────────────────────────────────────────────────────┐
 # │                        Utilities                         │
