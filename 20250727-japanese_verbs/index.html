@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Japanese Verb Flashcards</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            color: #ffffff;
+            overflow: hidden;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Animated background particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .particle {
+            position: absolute;
+            background: radial-gradient(circle, rgba(64, 224, 255, 0.8) 0%, rgba(255, 100, 255, 0.4) 100%);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 0.7; }
+            50% { transform: translateY(-20px) rotate(180deg); opacity: 1; }
+        }
+
+        /* Main container */
+        .container {
+            position: relative;
+            z-index: 10;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        /* Header controls */
+        .header {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            padding: 15px 25px;
+            border-radius: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .level-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .level-btn {
+            padding: 8px 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .level-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(64, 224, 255, 0.3);
+        }
+
+        .level-btn.active {
+            background: linear-gradient(135deg, #40e0ff, #ff64ff);
+            border-color: transparent;
+            box-shadow: 0 5px 20px rgba(64, 224, 255, 0.4);
+        }
+
+        .control-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
+            border: none;
+            border-radius: 25px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.3);
+        }
+
+        .control-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(255, 107, 107, 0.5);
+        }
+
+        /* Score display */
+        .score-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(20px);
+            padding: 15px 20px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .score-container.hidden {
+            opacity: 0;
+            transform: translateX(100px);
+        }
+
+        .verb-count {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(64, 224, 255, 0.2);
+            backdrop-filter: blur(20px);
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: 1px solid rgba(64, 224, 255, 0.3);
+            font-weight: bold;
+        }
+
+        /* Card container with 3D perspective */
+        .card-container {
+            perspective: 1000px;
+            width: 400px;
+            height: 250px;
+            margin: 50px auto;
+        }
+
+        .flashcard {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+        }
+
+        .flashcard.flipped {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+        }
+
+        .card-face::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #40e0ff, #ff64ff, #40e0ff);
+            border-radius: 22px;
+            z-index: -1;
+            animation: borderGlow 3s linear infinite;
+        }
+
+        @keyframes borderGlow {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+        }
+
+        .card-front {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            backdrop-filter: blur(20px);
+        }
+
+        .card-back {
+            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+            backdrop-filter: blur(20px);
+            transform: rotateY(180deg);
+            flex-direction: column;
+            padding: 30px;
+        }
+
+        .kanji {
+            font-size: 4rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #40e0ff, #ff64ff);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(64, 224, 255, 0.5);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .kana {
+            font-size: 1.5rem;
+            color: #40e0ff;
+            margin-bottom: 15px;
+            font-weight: 300;
+        }
+
+        .english {
+            font-size: 1.8rem;
+            color: #ffffff;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        .jlpt-level {
+            display: inline-block;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #ff6b6b, #ff8e8e);
+            border-radius: 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(255, 107, 107, 0.3);
+        }
+
+        /* Floating action buttons */
+        .fab-container {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .fab {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .fab-correct {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+        }
+
+        .fab-incorrect {
+            background: linear-gradient(135deg, #f44336, #da190b);
+        }
+
+        .fab:hover {
+            transform: translateY(-5px) scale(1.1);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Celebration animation */
+        .celebration {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .confetti {
+            position: absolute;
+            background: #40e0ff;
+            animation: confetti-fall 3s linear forwards;
+        }
+
+        @keyframes confetti-fall {
+            0% {
+                transform: translateY(-100vh) rotate(0deg);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(100vh) rotate(720deg);
+                opacity: 0;
+            }
+        }
+
+        /* Progress indicator */
+        .progress-container {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #40e0ff, #ff64ff);
+            border-radius: 3px;
+            transition: width 0.5s ease;
+            box-shadow: 0 0 20px rgba(64, 224, 255, 0.5);
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .card-container {
+                width: 300px;
+                height: 200px;
+            }
+            
+            .kanji {
+                font-size: 3rem;
+            }
+            
+            .header {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="particles" id="particles"></div>
+    
+    <div class="container">
+        <div class="header">
+            <div class="level-selector">
+                <span>Min Level:</span>
+                <button class="level-btn" data-level="N5">N5</button>
+                <button class="level-btn" data-level="N4">N4</button>
+                <button class="level-btn" data-level="N3">N3</button>
+                <button class="level-btn" data-level="N2">N2</button>
+                <button class="level-btn active" data-level="N1">N1</button>
+            </div>
+            <button class="control-btn" onclick="resetGame()">🔄 Reset & Shuffle</button>
+            <button class="control-btn" onclick="toggleScore()">📊 Toggle Score</button>
+        </div>
+
+        <div class="verb-count" id="verbCount">Verbs: 5</div>
+
+        <div class="score-container" id="scoreContainer">
+            <div>✅ Correct: <span id="correctScore">0</span></div>
+            <div>❌ Incorrect: <span id="incorrectScore">0</span></div>
+        </div>
+
+        <div class="card-container">
+            <div class="flashcard" id="flashcard" onclick="flipCard()">
+                <div class="card-face card-front">
+                    <div class="kanji" id="frontKanji">出発する</div>
+                </div>
+                <div class="card-face card-back">
+                    <div class="kana" id="backKana">しゅっぱつする</div>
+                    <div class="english" id="backEnglish">depart</div>
+                    <div class="jlpt-level" id="backJlpt">N1</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="fab-container">
+            <button class="fab fab-correct" onclick="markAnswer(true)" title="Correct">✓</button>
+            <button class="fab fab-incorrect" onclick="markAnswer(false)" title="Incorrect">✗</button>
+        </div>
+    </div>
+
+    <div class="celebration" id="celebration"></div>
+
+    <script>
+        // Sample data - will be replaced with full list
+        const verbData = [
+{kanji: "する", kana: "する", english: "do", jlpt: "N5"},
+{kanji: "いる", kana: "いる", english: "be (living beings)", jlpt: "N5"},
+{kanji: "ある", kana: "ある", english: "be (inanimate)", jlpt: "N5"},
+{kanji: "持つ", kana: "もつ", english: "have", jlpt: "N5"},
+{kanji: "作る", kana: "つくる", english: "make", jlpt: "N5"},
+{kanji: "行く", kana: "いく", english: "go", jlpt: "N5"},
+{kanji: "上げる", kana: "あげる", english: "give", jlpt: "N5"},
+{kanji: "言う", kana: "いう", english: "say", jlpt: "N5"},
+{kanji: "出来る", kana: "できる", english: "be able to", jlpt: "N5"},
+{kanji: "見る", kana: "みる", english: "see", jlpt: "N5"},
+{kanji: "食べる", kana: "たべる", english: "eat", jlpt: "N5"},
+{kanji: "笑う", kana: "わらう", english: "laugh", jlpt: "N5"},
+{kanji: "来る", kana: "くる", english: "come", jlpt: "N5"},
+{kanji: "付ける", kana: "つける", english: "turn on/attach", jlpt: "N5"},
+{kanji: "置く", kana: "おく", english: "put/place", jlpt: "N5"},
+{kanji: "信じる", kana: "しんじる", english: "believe", jlpt: "N5"},
+{kanji: "話す", kana: "はなす", english: "speak", jlpt: "N5"},
+{kanji: "読む", kana: "よむ", english: "read", jlpt: "N5"},
+{kanji: "寝る", kana: "ねる", english: "sleep", jlpt: "N5"},
+{kanji: "分かる", kana: "わかる", english: "understand", jlpt: "N5"},
+{kanji: "呼ぶ", kana: "よぶ", english: "call", jlpt: "N5"},
+{kanji: "運ぶ", kana: "はこぶ", english: "carry", jlpt: "N5"},
+{kanji: "着る", kana: "きる", english: "wear", jlpt: "N5"},
+{kanji: "立つ", kana: "たつ", english: "stand", jlpt: "N5"},
+{kanji: "開ける", kana: "あける", english: "open", jlpt: "N5"},
+{kanji: "生きる", kana: "いきる", english: "live", jlpt: "N5"},
+{kanji: "持ってくる", kana: "もってくる", english: "bring", jlpt: "N5"},
+{kanji: "書く", kana: "かく", english: "write", jlpt: "N5"},
+{kanji: "思う", kana: "おもう", english: "think", jlpt: "N5"},
+{kanji: "探す", kana: "さがす", english: "search", jlpt: "N5"},
+{kanji: "取る", kana: "とる", english: "take", jlpt: "N5"},
+{kanji: "歩く", kana: "あるく", english: "walk", jlpt: "N5"},
+{kanji: "走る", kana: "はしる", english: "run", jlpt: "N5"},
+{kanji: "要る", kana: "いる", english: "need", jlpt: "N5"},
+{kanji: "負ける", kana: "まける", english: "lose", jlpt: "N5"},
+{kanji: "踊る", kana: "おどる", english: "dance", jlpt: "N5"},
+{kanji: "買う", kana: "かう", english: "buy", jlpt: "N5"},
+{kanji: "答える", kana: "こたえる", english: "answer", jlpt: "N5"},
+{kanji: "尋ねる", kana: "たずねる", english: "ask", jlpt: "N5"},
+{kanji: "閉じる", kana: "とじる", english: "close", jlpt: "N5"},
+{kanji: "注文する", kana: "ちゅうもんする", english: "order", jlpt: "N5"},
+{kanji: "歌う", kana: "うたう", english: "sing", jlpt: "N5"},
+{kanji: "遊ぶ", kana: "あそぶ", english: "play", jlpt: "N5"},
+{kanji: "従う", kana: "したがう", english: "follow", jlpt: "N5"},
+{kanji: "続ける", kana: "つづける", english: "continue", jlpt: "N5"},
+{kanji: "帰る", kana: "かえる", english: "return", jlpt: "N5"},
+{kanji: "払う", kana: "はらう", english: "pay", jlpt: "N5"},
+{kanji: "知る", kana: "しる", english: "know", jlpt: "N5"},
+{kanji: "学ぶ", kana: "まなぶ", english: "learn", jlpt: "N5"},
+{kanji: "聞く", kana: "きく", english: "hear/ask", jlpt: "N5"},
+{kanji: "売る", kana: "うる", english: "sell", jlpt: "N4"},
+{kanji: "上る", kana: "のぼる", english: "climb", jlpt: "N4"},
+{kanji: "旅行する", kana: "りょこうする", english: "travel", jlpt: "N4"},
+{kanji: "聞こえる", kana: "きこえる", english: "be heard", jlpt: "N4"},
+{kanji: "説明する", kana: "せつめいする", english: "explain", jlpt: "N4"},
+{kanji: "終える", kana: "おえる", english: "finish", jlpt: "N4"},
+{kanji: "好む", kana: "このむ", english: "like", jlpt: "N4"},
+{kanji: "料理する", kana: "りょうりする", english: "cook", jlpt: "N4"},
+{kanji: "感じる", kana: "かんじる", english: "feel", jlpt: "N4"},
+{kanji: "飲む", kana: "のむ", english: "drink", jlpt: "N4"},
+{kanji: "訪問する", kana: "ほうもんする", english: "visit", jlpt: "N4"},
+{kanji: "受け取る", kana: "うけとる", english: "receive", jlpt: "N4"},
+{kanji: "取り出す", kana: "とりだす", english: "take out", jlpt: "N4"},
+{kanji: "数える", kana: "かぞえる", english: "count", jlpt: "N4"},
+{kanji: "演奏する", kana: "えんそうする", english: "perform music", jlpt: "N4"},
+{kanji: "得る", kana: "える", english: "obtain", jlpt: "N4"},
+{kanji: "勝つ", kana: "かつ", english: "win", jlpt: "N4"},
+{kanji: "稼ぐ", kana: "かせぐ", english: "earn", jlpt: "N4"},
+{kanji: "見る", kana: "みる", english: "look/see", jlpt: "N4"},
+{kanji: "待つ", kana: "まつ", english: "wait", jlpt: "N4"},
+{kanji: "ブラシする", kana: "ブラシする", english: "brush", jlpt: "N4"},
+{kanji: "思い出す", kana: "おもいだす", english: "remember", jlpt: "N4"},
+{kanji: "練習する", kana: "れんしゅうする", english: "practice", jlpt: "N4"},
+{kanji: "会話する", kana: "かいわする", english: "converse", jlpt: "N4"},
+{kanji: "繰り返す", kana: "くりかえす", english: "repeat", jlpt: "N4"},
+{kanji: "戻す", kana: "もどす", english: "put back", jlpt: "N4"},
+{kanji: "届ける", kana: "とどける", english: "deliver", jlpt: "N4"},
+{kanji: "焼く", kana: "やく", english: "bake", jlpt: "N4"},
+{kanji: "助ける", kana: "たすける", english: "help", jlpt: "N4"},
+{kanji: "起きる", kana: "おきる", english: "get up", jlpt: "N4"},
+{kanji: "会う", kana: "あう", english: "meet", jlpt: "N4"},
+{kanji: "始める", kana: "はじめる", english: "begin", jlpt: "N4"},
+{kanji: "忘れる", kana: "わすれる", english: "forget", jlpt: "N4"},
+{kanji: "落ちる", kana: "おちる", english: "fall", jlpt: "N4"},
+{kanji: "招待する", kana: "しょうたいする", english: "invite", jlpt: "N4"},
+{kanji: "泳ぐ", kana: "およぐ", english: "swim", jlpt: "N4"},
+{kanji: "残す", kana: "のこす", english: "leave behind", jlpt: "N4"},
+{kanji: "剃る", kana: "そる", english: "shave", jlpt: "N4"},
+{kanji: "入る", kana: "はいる", english: "enter", jlpt: "N4"},
+{kanji: "弾く", kana: "ひく", english: "play (instrument)", jlpt: "N4"},
+{kanji: "運転する", kana: "うんてんする", english: "drive", jlpt: "N4"},
+{kanji: "維持する", kana: "いじする", english: "maintain", jlpt: "N4"},
+{kanji: "降りる", kana: "おりる", english: "get off", jlpt: "N4"},
+{kanji: "準備する", kana: "じゅんびする", english: "prepare", jlpt: "N4"},
+{kanji: "計画する", kana: "けいかくする", english: "plan", jlpt: "N4"},
+{kanji: "跳ねる", kana: "はねる", english: "jump", jlpt: "N4"},
+{kanji: "保つ", kana: "たもつ", english: "keep", jlpt: "N4"},
+{kanji: "打つ", kana: "うつ", english: "hit", jlpt: "N4"},
+{kanji: "死ぬ", kana: "しぬ", english: "die", jlpt: "N4"},
+{kanji: "貸す", kana: "かす", english: "lend", jlpt: "N4"},
+{kanji: "愛する", kana: "あいする", english: "love", jlpt: "N3"},
+{kanji: "費やす", kana: "ついやす", english: "spend", jlpt: "N3"},
+{kanji: "教える", kana: "おしえる", english: "teach", jlpt: "N3"},
+{kanji: "下げる", kana: "さげる", english: "lower", jlpt: "N3"},
+{kanji: "休む", kana: "やすむ", english: "rest", jlpt: "N3"},
+{kanji: "送る", kana: "おくる", english: "send", jlpt: "N3"},
+{kanji: "塗る", kana: "ぬる", english: "paint", jlpt: "N3"},
+{kanji: "治す", kana: "なおす", english: "heal", jlpt: "N3"},
+{kanji: "触る", kana: "さわる", english: "touch", jlpt: "N3"},
+{kanji: "試す", kana: "ためす", english: "try", jlpt: "N3"},
+{kanji: "理解する", kana: "りかいする", english: "understand", jlpt: "N3"},
+{kanji: "許可する", kana: "きょかする", english: "permit", jlpt: "N3"},
+{kanji: "継続する", kana: "けいぞくする", english: "continue", jlpt: "N3"},
+{kanji: "破壊する", kana: "はかいする", english: "destroy", jlpt: "N3"},
+{kanji: "含む", kana: "ふくむ", english: "include", jlpt: "N3"},
+{kanji: "与える", kana: "あたえる", english: "give", jlpt: "N3"},
+{kanji: "疲れる", kana: "つかれる", english: "get tired", jlpt: "N3"},
+{kanji: "見せる", kana: "みせる", english: "show", jlpt: "N3"},
+{kanji: "掛かる", kana: "かかる", english: "take (cost)", jlpt: "N3"},
+{kanji: "動かす", kana: "うごかす", english: "move (something)", jlpt: "N3"},
+{kanji: "雨が降る", kana: "あめがふる", english: "rain", jlpt: "N3"},
+{kanji: "必要とする", kana: "ひつようとする", english: "require", jlpt: "N3"},
+{kanji: "雪が降る", kana: "ゆきがふる", english: "snow", jlpt: "N3"},
+{kanji: "苦情をいう", kana: "くじょうをいう", english: "complain", jlpt: "N3"},
+{kanji: "体を拭く", kana: "からだをふく", english: "dry oneself", jlpt: "N3"},
+{kanji: "怒る", kana: "おこる", english: "get angry", jlpt: "N3"},
+{kanji: "選ぶ", kana: "えらぶ", english: "choose", jlpt: "N3"},
+{kanji: "残る", kana: "のこる", english: "remain", jlpt: "N3"},
+{kanji: "出る", kana: "でる", english: "leave/exit", jlpt: "N3"},
+{kanji: "足す", kana: "たす", english: "add", jlpt: "N3"},
+{kanji: "結婚する", kana: "けっこんする", english: "marry", jlpt: "N3"},
+{kanji: "滞在する", kana: "たいざいする", english: "stay", jlpt: "N3"},
+{kanji: "受け入れる", kana: "うけいれる", english: "accept", jlpt: "N3"},
+{kanji: "横になる", kana: "よこになる", english: "lie down", jlpt: "N3"},
+{kanji: "実感する", kana: "じっかんする", english: "realize", jlpt: "N3"},
+{kanji: "楽しむ", kana: "たのしむ", english: "enjoy", jlpt: "N3"},
+{kanji: "責める", kana: "せめる", english: "blame", jlpt: "N3"},
+{kanji: "加える", kana: "くわえる", english: "add", jlpt: "N3"},
+{kanji: "冷やす", kana: "ひやす", english: "cool", jlpt: "N3"},
+{kanji: "持つ", kana: "もつ", english: "carry", jlpt: "N3"},
+{kanji: "忠告する", kana: "ちゅうこくする", english: "advise", jlpt: "N3"},
+{kanji: "発表する", kana: "はっぴょうする", english: "announce", jlpt: "N3"},
+{kanji: "心配する", kana: "しんぱいする", english: "worry", jlpt: "N3"},
+{kanji: "集中する", kana: "しゅうちゅうする", english: "concentrate", jlpt: "N3"},
+{kanji: "宣言する", kana: "せんげんする", english: "declare", jlpt: "N3"},
+{kanji: "祝う", kana: "いわう", english: "celebrate", jlpt: "N3"},
+{kanji: "進む", kana: "すすむ", english: "advance", jlpt: "N3"},
+{kanji: "渡る", kana: "わたる", english: "cross", jlpt: "N3"},
+{kanji: "泣く", kana: "なく", english: "cry", jlpt: "N3"},
+{kanji: "切る", kana: "きる", english: "cut", jlpt: "N3"},
+{kanji: "挨拶をする", kana: "あいさつをする", english: "greet", jlpt: "N2"},
+{kanji: "振り込む", kana: "ふりこむ", english: "deposit", jlpt: "N2"},
+{kanji: "紹介する", kana: "しょうかいする", english: "introduce", jlpt: "N2"},
+{kanji: "実験する", kana: "じっけんする", english: "experiment", jlpt: "N2"},
+{kanji: "体験する", kana: "たいけんする", english: "experience", jlpt: "N2"},
+{kanji: "戦う", kana: "たたかう", english: "fight", jlpt: "N2"},
+{kanji: "終える", kana: "おえる", english: "end", jlpt: "N2"},
+{kanji: "捨てる", kana: "すてる", english: "throw away", jlpt: "N2"},
+{kanji: "飛ぶ", kana: "とぶ", english: "fly", jlpt: "N2"},
+{kanji: "汚れる", kana: "よごれる", english: "get dirty", jlpt: "N2"},
+{kanji: "得る", kana: "える", english: "get", jlpt: "N2"},
+{kanji: "掴む", kana: "つかむ", english: "grab", jlpt: "N2"},
+{kanji: "喋る", kana: "しゃべる", english: "chat", jlpt: "N2"},
+{kanji: "抱く", kana: "だく", english: "hug", jlpt: "N2"},
+{kanji: "疑う", kana: "うたがう", english: "doubt", jlpt: "N2"},
+{kanji: "判断する", kana: "はんだんする", english: "judge", jlpt: "N2"},
+{kanji: "跳ねる", kana: "はねる", english: "hop", jlpt: "N2"},
+{kanji: "殺す", kana: "ころす", english: "kill", jlpt: "N2"},
+{kanji: "許す", kana: "ゆるす", english: "forgive", jlpt: "N2"},
+{kanji: "占める", kana: "しめる", english: "occupy", jlpt: "N2"},
+{kanji: "整頓する", kana: "せいとんする", english: "tidy up", jlpt: "N2"},
+{kanji: "加わる", kana: "くわわる", english: "join", jlpt: "N2"},
+{kanji: "発音する", kana: "はつおんする", english: "pronounce", jlpt: "N2"},
+{kanji: "登録する", kana: "とうろくする", english: "register", jlpt: "N2"},
+{kanji: "予約する", kana: "よやくする", english: "reserve", jlpt: "N2"},
+{kanji: "盗む", kana: "ぬすむ", english: "steal", jlpt: "N2"},
+{kanji: "保存する", kana: "ほぞんする", english: "save", jlpt: "N2"},
+{kanji: "叫ぶ", kana: "さけぶ", english: "scream", jlpt: "N2"},
+{kanji: "分ける", kana: "わける", english: "divide", jlpt: "N2"},
+{kanji: "署名する", kana: "しょめいする", english: "sign", jlpt: "N2"},
+{kanji: "吸う", kana: "すう", english: "smoke", jlpt: "N2"},
+{kanji: "止める", kana: "とめる", english: "stop", jlpt: "N2"},
+{kanji: "消す", kana: "けす", english: "erase", jlpt: "N2"},
+{kanji: "曲がる", kana: "まがる", english: "turn", jlpt: "N2"},
+{kanji: "畳む", kana: "たたむ", english: "fold", jlpt: "N2"},
+{kanji: "使う", kana: "つかう", english: "use", jlpt: "N2"},
+{kanji: "生まれる", kana: "うまれる", english: "be born", jlpt: "N2"},
+{kanji: "怖がる", kana: "こわがる", english: "fear", jlpt: "N2"},
+{kanji: "征服する", kana: "せいふくする", english: "conquer", jlpt: "N2"},
+{kanji: "消える", kana: "きえる", english: "disappear", jlpt: "N2"},
+{kanji: "起こす", kana: "おこす", english: "wake someone", jlpt: "N2"},
+{kanji: "求める", kana: "もとめる", english: "request", jlpt: "N2"},
+{kanji: "遮る", kana: "さえぎる", english: "interrupt", jlpt: "N2"},
+{kanji: "起こる", kana: "おこる", english: "occur", jlpt: "N2"},
+{kanji: "苦しむ", kana: "くるしむ", english: "suffer", jlpt: "N2"},
+{kanji: "正す", kana: "ただす", english: "correct", jlpt: "N2"},
+{kanji: "押す", kana: "おす", english: "push", jlpt: "N2"},
+{kanji: "描く", kana: "えがく", english: "draw", jlpt: "N2"},
+{kanji: "引く", kana: "ひく", english: "pull", jlpt: "N2"},
+{kanji: "動く", kana: "うごく", english: "move", jlpt: "N2"},
+{kanji: "座る", kana: "すわる", english: "sit", jlpt: "N1"},
+{kanji: "脱ぐ", kana: "ぬぐ", english: "take off", jlpt: "N1"},
+{kanji: "働く", kana: "はたらく", english: "work", jlpt: "N1"},
+{kanji: "曲げる", kana: "まげる", english: "bend", jlpt: "N1"},
+{kanji: "乗る", kana: "のる", english: "ride", jlpt: "N1"},
+{kanji: "閉める", kana: "しめる", english: "close", jlpt: "N1"},
+{kanji: "出発する", kana: "しゅっぱつする", english: "depart", jlpt: "N1"},
+{kanji: "到着する", kana: "とうちゃくする", english: "arrive", jlpt: "N1"},
+{kanji: "考える", kana: "かんがえる", english: "consider", jlpt: "N1"},
+{kanji: "想像する", kana: "そうぞうする", english: "imagine", jlpt: "N1"},
+{kanji: "感じる", kana: "かんじる", english: "feel", jlpt: "N1"},
+{kanji: "嫌う", kana: "きらう", english: "hate", jlpt: "N1"},
+{kanji: "憎む", kana: "にくむ", english: "detest", jlpt: "N1"},
+{kanji: "期待する", kana: "きたいする", english: "expect", jlpt: "N1"},
+{kanji: "同意する", kana: "どういする", english: "agree", jlpt: "N1"},
+{kanji: "悲しむ", kana: "かなしむ", english: "grieve", jlpt: "N1"},
+{kanji: "願う", kana: "ねがう", english: "hope", jlpt: "N1"},
+{kanji: "満足する", kana: "まんぞくする", english: "be satisfied", jlpt: "N1"},
+{kanji: "決める", kana: "きめる", english: "decide", jlpt: "N1"},
+{kanji: "気づく", kana: "きづく", english: "notice", jlpt: "N1"},
+{kanji: "現れる", kana: "あらわれる", english: "appear", jlpt: "N1"},
+{kanji: "確認する", kana: "かくにんする", english: "confirm", jlpt: "N1"},
+{kanji: "減る", kana: "へる", english: "decrease", jlpt: "N1"},
+{kanji: "増える", kana: "ふえる", english: "increase", jlpt: "N1"},
+{kanji: "乾く", kana: "かわく", english: "dry", jlpt: "N1"},
+{kanji: "濡れる", kana: "ぬれる", english: "get wet", jlpt: "N1"},
+{kanji: "洗う", kana: "あらう", english: "wash", jlpt: "N1"},
+{kanji: "示す", kana: "しめす", english: "show", jlpt: "N1"},
+{kanji: "壊す", kana: "こわす", english: "break", jlpt: "N1"},
+{kanji: "変わる", kana: "かわる", english: "change", jlpt: "N1"},
+{kanji: "立てる", kana: "たてる", english: "build", jlpt: "N1"},
+{kanji: "噓をつく", kana: "うそをつく", english: "lie", jlpt: "N1"},
+{kanji: "世話をする", kana: "せわをする", english: "take care", jlpt: "N1"},
+{kanji: "生産する", kana: "せいさんする", english: "produce", jlpt: "N1"},
+{kanji: "認める", kana: "みとめる", english: "admit", jlpt: "N1"},
+{kanji: "匂う", kana: "におう", english: "smell", jlpt: "N1"},
+{kanji: "鳴らす", kana: "ならす", english: "ring", jlpt: "N1"},
+{kanji: "噛む", kana: "かむ", english: "bite", jlpt: "N1"},
+{kanji: "放す", kana: "はなす", english: "release", jlpt: "N1"},
+{kanji: "守る", kana: "まもる", english: "protect", jlpt: "N1"},
+{kanji: "摘む", kana: "つまむ", english: "pick", jlpt: "N1"},
+{kanji: "痛む", kana: "いたむ", english: "ache", jlpt: "N1"},
+{kanji: "見える", kana: "みえる", english: "be visible", jlpt: "N1"},
+{kanji: "間違える", kana: "まちがえる", english: "make a mistake", jlpt: "N1"},
+{kanji: "翻訳する", kana: "ほんやくする", english: "translate", jlpt: "N1"},
+{kanji: "磨く", kana: "みがく", english: "polish", jlpt: "N1"},
+{kanji: "散歩する", kana: "さんぽする", english: "stroll", jlpt: "N1"},
+{kanji: "馬鹿にする", kana: "ばかにする", english: "make fun", jlpt: "N1"},
+{kanji: "覚える", kana: "おぼえる", english: "memorize", jlpt: "N1"},
+{kanji: "卒業する", kana: "そつぎょうする", english: "graduate", jlpt: "N1"},
+        ];
+
+        let currentDeck = [];
+        let currentIndex = 0;
+        let isFlipped = false;
+        let minLevel = "N1";
+        let correctCount = 0;
+        let incorrectCount = 0;
+        let scoreVisible = true;
+
+        const jlptLevels = ["N5", "N4", "N3", "N2", "N1"];
+
+        // Initialize particles
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            for (let i = 0; i < 50; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.top = Math.random() * 100 + '%';
+                particle.style.width = Math.random() * 4 + 2 + 'px';
+                particle.style.height = particle.style.width;
+                particle.style.animationDelay = Math.random() * 6 + 's';
+                particle.style.animationDuration = (Math.random() * 3 + 3) + 's';
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // Filter verbs by JLPT level
+        function filterVerbs() {
+            const minLevelIndex = jlptLevels.indexOf(minLevel);
+            currentDeck = verbData.filter(verb => {
+                const verbLevelIndex = jlptLevels.indexOf(verb.jlpt);
+                return verbLevelIndex >= minLevelIndex;
+            });
+            shuffleDeck();
+            updateVerbCount();
+            updateProgress();
+        }
+
+        // Shuffle the deck
+        function shuffleDeck() {
+            for (let i = currentDeck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [currentDeck[i], currentDeck[j]] = [currentDeck[j], currentDeck[i]];
+            }
+        }
+
+        // Update verb count display
+        function updateVerbCount() {
+            document.getElementById('verbCount').textContent = `Verbs: ${currentDeck.length}`;
+        }
+
+        // Update progress bar
+        function updateProgress() {
+            const progress = currentDeck.length > 0 ? ((currentIndex + 1) / currentDeck.length) * 100 : 0;
+            document.getElementById('progressBar').style.width = progress + '%';
+        }
+
+        // Display current card
+        function displayCard() {
+            if (currentDeck.length === 0) return;
+            
+            const verb = currentDeck[currentIndex];
+            document.getElementById('frontKanji').textContent = verb.kanji;
+            document.getElementById('backKana').textContent = verb.kana;
+            document.getElementById('backEnglish').textContent = verb.english;
+            document.getElementById('backJlpt').textContent = verb.jlpt;
+            
+            // Reset card to front
+            document.getElementById('flashcard').classList.remove('flipped');
+            isFlipped = false;
+            
+            updateProgress();
+        }
+
+        // Flip card animation
+        function flipCard() {
+            const card = document.getElementById('flashcard');
+            if (!isFlipped) {
+                card.classList.add('flipped');
+                isFlipped = true;
+            } else {
+                nextCard();
+            }
+        }
+
+        // Move to next card with animation
+        function nextCard() {
+            const cardContainer = document.querySelector('.card-container');
+            
+            // Add exit animation
+            cardContainer.style.transform = 'translateX(-100px) rotateY(90deg)';
+            cardContainer.style.opacity = '0';
+            
+            setTimeout(() => {
+                currentIndex = (currentIndex + 1) % currentDeck.length;
+                displayCard();
+                
+                // Add entrance animation
+                cardContainer.style.transform = 'translateX(100px) rotateY(-90deg)';
+                
+                setTimeout(() => {
+                    cardContainer.style.transform = 'translateX(0) rotateY(0deg)';
+                    cardContainer.style.opacity = '1';
+                }, 50);
+            }, 300);
+        }
+
+        // Mark answer and provide feedback
+        function markAnswer(isCorrect) {
+            if (isCorrect) {
+                correctCount++;
+                createCelebration();
+            } else {
+                incorrectCount++;
+            }
+            
+            updateScore();
+            nextCard();
+        }
+
+        // Create celebration effect
+        function createCelebration() {
+            const celebration = document.getElementById('celebration');
+            
+            for (let i = 0; i < 30; i++) {
+                const confetti = document.createElement('div');
+                confetti.className = 'confetti';
+                confetti.style.left = Math.random() * 100 + '%';
+                confetti.style.backgroundColor = Math.random() > 0.5 ? '#40e0ff' : '#ff64ff';
+                confetti.style.width = Math.random() * 10 + 5 + 'px';
+                confetti.style.height = confetti.style.width;
+                confetti.style.animationDelay = Math.random() * 1 + 's';
+                celebration.appendChild(confetti);
+                
+                setTimeout(() => confetti.remove(), 3000);
+            }
+        }
+
+        // Update score display
+        function updateScore() {
+            document.getElementById('correctScore').textContent = correctCount;
+            document.getElementById('incorrectScore').textContent = incorrectCount;
+        }
+
+        // Toggle score visibility
+        function toggleScore() {
+            const scoreContainer = document.getElementById('scoreContainer');
+            scoreVisible = !scoreVisible;
+            scoreContainer.classList.toggle('hidden', !scoreVisible);
+        }
+
+        // Reset game
+        function resetGame() {
+            currentIndex = 0;
+            correctCount = 0;
+            incorrectCount = 0;
+            updateScore();
+            filterVerbs();
+            displayCard();
+        }
+
+        // Level selection
+        document.addEventListener('DOMContentLoaded', function() {
+            const levelButtons = document.querySelectorAll('.level-btn');
+            
+            levelButtons.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    levelButtons.forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    minLevel = this.dataset.level;
+                    resetGame();
+                });
+            });
+            
+            // Initialize
+            createParticles();
+            filterVerbs();
+            displayCard();
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            switch(e.key) {
+                case ' ':
+                case 'Enter':
+                    e.preventDefault();
+                    flipCard();
+                    break;
+                case '1':
+                    markAnswer(true);
+                    break;
+                case '0':
+                    markAnswer(false);
+                    break;
+                case 'r':
+                    resetGame();
+                    break;
+            }
+        });
+    </script>
+</body>
+</html>
