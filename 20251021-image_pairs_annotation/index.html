@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Pair Difference Annotator</title>
+  <style>
+    :root { --accent:#ff9500; --bg:#f5f5f7; --ink:#222; }
+    *{ box-sizing:border-box }
+    html,body{ height:100% }
+    body{ margin:0; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink); background:var(--bg) }
+    #toolbar{ position:sticky; top:0; z-index:10; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.5rem; background:#fff; border-bottom:1px solid #ddd }
+    #toolbar .group{ display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .5rem; background:#fafafa; border:1px solid #e5e5e5; border-radius:8px }
+    button,input[type="number"],input[type="range"],label,input[type="checkbox"]{ font:inherit }
+    button{ padding:.4rem .7rem; border-radius:8px; border:1px solid #ccc; background:#fff; cursor:pointer }
+    button.primary{ border-color:var(--accent) }
+    button:disabled{ opacity:.6; cursor:not-allowed }
+    #status{ margin-left:auto; opacity:.8 }
+
+    #viewport{ position:relative; width:100%; height:calc(100vh - 64px); overflow:hidden; background:#eee; cursor:crosshair; user-select:none; touch-action:none }
+    #stage{ position:absolute; left:0; top:0; transform-origin:0 0; image-rendering:auto }
+    .layer{ position:absolute; left:0; top:0; user-drag:none; -webkit-user-drag:none }
+    #imgA,#imgB{ max-width:none; display:block }
+    #imgB{ visibility:hidden }
+    #mask{ pointer-events:auto }
+    #help{ padding:.5rem .75rem; opacity:.7 }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <div class="group">
+      <label for="pairInput"><strong>Upload Pair</strong></label>
+      <input id="pairInput" type="file" accept="image/*" multiple />
+      <span id="fileInfo" style="opacity:.7"></span>
+    </div>
+
+    <div class="group">
+      <button id="modeBtn" class="primary" title="Toggle paint / erase (X)">Mode: Paint</button>
+      <label>Brush <input id="brush" type="range" min="1" max="128" value="18" /></label>
+    </div>
+
+    <div class="group">
+      <label>Flicker (ms) <input id="interval" type="number" min="50" step="50" value="500" style="width:6rem"></label>
+      <label title="Pause flicker"><input id="flickerOn" type="checkbox" checked /> On</label>
+    </div>
+
+    <div class="group">
+      <label>Opacity <input id="opacity" type="range" min="0" max="100" value="70"/></label>
+      <span id="opacityLbl" style="opacity:.75">70%</span>
+    </div>
+
+    <div class="group">
+      <button id="undoBtn" title="Undo (Z or Ctrl/Cmd+Z)">Undo</button>
+      <button id="resetZoom">Reset zoom</button>
+      <button id="clearPaint">Clear all paint</button>
+      <button id="exportBtn">Export annotation</button>
+    </div>
+
+    <div id="status">Zoom: <span id="zoomPct">20%</span> · Mode: <span id="modeLbl">Paint</span> · Showing: <span id="showingLbl">A</span></div>
+  </div>
+
+  <div id="viewport">
+    <div id="stage">
+      <img id="imgA" class="layer" alt="Image A" />
+      <img id="imgB" class="layer" alt="Image B" />
+      <canvas id="mask" class="layer"></canvas>
+    </div>
+  </div>
+  <div id="help">Wheel = zoom · Hold <kbd>Space</kbd> or <kbd>Shift</kbd> to pan · <kbd>X</kbd> toggles paint/erase · <kbd>Z</kbd> or <kbd>Ctrl/Cmd+Z</kbd> = Undo</div>
+
+  <script>
+    // --- Elements ---
+    const pairInput = document.getElementById('pairInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const imgAEl = document.getElementById('imgA');
+    const imgBEl = document.getElementById('imgB');
+    const mask = document.getElementById('mask');
+    const stage = document.getElementById('stage');
+    const viewport = document.getElementById('viewport');
+    const modeBtn = document.getElementById('modeBtn');
+    const brush = document.getElementById('brush');
+    const intervalInput = document.getElementById('interval');
+    const flickerOn = document.getElementById('flickerOn');
+    const resetZoomBtn = document.getElementById('resetZoom');
+    const clearPaintBtn = document.getElementById('clearPaint');
+    const exportBtn = document.getElementById('exportBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const zoomPct = document.getElementById('zoomPct');
+    const modeLbl = document.getElementById('modeLbl');
+    const showingLbl = document.getElementById('showingLbl');
+    const opacitySlider = document.getElementById('opacity');
+    const opacityLbl = document.getElementById('opacityLbl');
+
+    // --- State ---
+    let imgA = new Image();
+    let imgB = new Image();
+    let loadedA = false, loadedB = false;
+    let naturalW = 0, naturalH = 0;
+    let firstBaseName = 'annotation';
+
+    let showA = true;
+    let flickerTimer = null;
+
+    let drawing = false;
+    let mode = 'paint'; // 'paint' | 'erase'
+    let lastX = 0, lastY = 0;
+
+    // Stroke history (for Undo)
+    const strokes = []; // {mode, width, points:[{x,y}]}
+    let currentStroke = null;
+
+    // Pan/Zoom
+    let scale = 0.2;        // start at 20%
+    let offsetX = 0, offsetY = 0; // transform translate (px) in viewport space
+    let panning = false, panStartX = 0, panStartY = 0, panOX = 0, panOY = 0;
+    let spaceHeld = false, shiftHeld = false;
+
+    const ctx = mask.getContext('2d');
+
+    function setStatus() {
+      zoomPct.textContent = Math.round(scale * 100) + '%';
+      modeLbl.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+      showingLbl.textContent = showA ? 'A' : 'B';
+    }
+
+    function applyTransform() {
+      stage.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+      setStatus();
+    }
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function startFlicker() {
+      stopFlicker();
+      if (!flickerOn.checked) return;
+      const ms = Math.max(50, Number(intervalInput.value) || 500);
+      flickerTimer = setInterval(() => {
+        showA = !showA;
+        imgAEl.style.visibility = showA ? 'visible' : 'hidden';
+        imgBEl.style.visibility = showA ? 'hidden' : 'visible';
+        setStatus();
+      }, ms);
+    }
+    function stopFlicker() { if (flickerTimer) { clearInterval(flickerTimer); flickerTimer = null; } }
+
+    function setMode(newMode) {
+      mode = newMode;
+      modeBtn.textContent = `Mode: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+      modeBtn.classList.toggle('primary', mode === 'paint');
+      setStatus();
+    }
+
+    function toggleMode() { setMode(mode === 'paint' ? 'erase' : 'paint'); }
+
+    function setScaleAndCenter(newScale) {
+      scale = clamp(newScale, 0.2, 10);
+      const r = viewport.getBoundingClientRect();
+      const w = naturalW * scale;
+      const h = naturalH * scale;
+      offsetX = (r.width - w) / 2;
+      offsetY = (r.height - h) / 2;
+      applyTransform();
+    }
+
+    function resetZoom() { setScaleAndCenter(0.2); }
+
+    function clearPaint() {
+      if (!naturalW || !naturalH) return;
+      if (confirm('Clear ALL paint? This cannot be undone.')) {
+        strokes.length = 0;
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0,0,mask.width,mask.height);
+        ctx.restore();
+      }
+    }
+
+    function exportAnnotation() {
+      if (!naturalW || !naturalH) return;
+      const url = mask.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url; a.download = `${firstBaseName || 'annotation'}_mask.png`;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    // Map viewport pointer -> image/canvas coordinates considering pan+zoom
+    function toCanvasCoords(clientX, clientY) {
+      const r = viewport.getBoundingClientRect();
+      const xV = clientX - r.left; // viewport coords
+      const yV = clientY - r.top;
+      const x = (xV - offsetX) / scale;
+      const y = (yV - offsetY) / scale;
+      return { x, y };
+    }
+
+    // --- Stroke drawing helpers ---
+    function drawSegment(x1, y1, x2, y2, m, w){
+      ctx.save();
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = w;
+      if (m === 'paint') {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = 'rgba(255,165,0,1)';
+      } else {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.strokeStyle = 'rgba(0,0,0,1)';
+      }
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function redrawAll(){
+      ctx.save();
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.clearRect(0,0,mask.width,mask.height);
+      ctx.restore();
+      for (const s of strokes){
+        for (let i=1;i<s.points.length;i++){
+          const p0 = s.points[i-1];
+          const p1 = s.points[i];
+          drawSegment(p0.x, p0.y, p1.x, p1.y, s.mode, s.width);
+        }
+      }
+    }
+
+    function undo(){
+      if (currentStroke) return; // don't undo mid-stroke
+      if (strokes.length === 0) return;
+      strokes.pop();
+      redrawAll();
+    }
+
+    // --- Drawing handlers ---
+    function beginDraw(e) {
+      if (!naturalW || !naturalH) return;
+      if (spaceHeld || shiftHeld) return; // avoid drawing while panning
+      drawing = true;
+      currentStroke = { mode, width: parseInt(brush.value,10)||18, points: [] };
+      const pt = (e.touches && e.touches[0]) ? e.touches[0] : e;
+      const p = toCanvasCoords(pt.clientX, pt.clientY);
+      lastX = p.x; lastY = p.y;
+      currentStroke.points.push({x:lastX, y:lastY});
+      e.preventDefault();
+    }
+    function moveDraw(e) {
+      if (!drawing) return;
+      const pt = (e.touches && e.touches[0]) ? e.touches[0] : e;
+      const p = toCanvasCoords(pt.clientX, pt.clientY);
+      drawSegment(lastX, lastY, p.x, p.y, mode, currentStroke.width);
+      lastX = p.x; lastY = p.y;
+      currentStroke.points.push({x:lastX, y:lastY});
+      e.preventDefault();
+    }
+    function endDraw() {
+      if (!drawing) return;
+      drawing = false;
+      if (currentStroke && currentStroke.points.length > 1){
+        strokes.push(currentStroke);
+      }
+      currentStroke = null;
+    }
+
+    // --- Pan/zoom handlers ---
+    viewport.addEventListener('wheel', (e) => {
+      if (!naturalW || !naturalH) return;
+      const delta = -e.deltaY; // up = zoom in
+      const prev = scale;
+      const factor = Math.exp(delta * 0.001); // smooth zoom
+      scale = clamp(scale * factor, 0.2, 10);
+      const r = viewport.getBoundingClientRect();
+      const cx = e.clientX - r.left;
+      const cy = e.clientY - r.top;
+      // keep point under cursor stable
+      offsetX = cx - (cx - offsetX) * (scale / prev);
+      offsetY = cy - (cy - offsetY) * (scale / prev);
+      applyTransform();
+      e.preventDefault();
+    }, { passive: false });
+
+    function panKeyActive(){ return spaceHeld || shiftHeld; }
+    function isEditable(el){ return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable); }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') { spaceHeld = true; e.preventDefault(); }
+      if (e.key === 'Shift') { shiftHeld = true; }
+      if (!isEditable(e.target)){
+        const k = e.key.toLowerCase();
+        if (k === 'x') toggleMode();
+        if (k === 'z' || (e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); undo(); }
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') spaceHeld = false;
+      if (e.key === 'Shift') shiftHeld = false;
+    });
+
+    viewport.addEventListener('pointerdown', (e) => {
+      if (!naturalW || !naturalH) return;
+      if (panKeyActive()) {
+        panning = true; panStartX = e.clientX; panStartY = e.clientY; panOX = offsetX; panOY = offsetY; viewport.setPointerCapture(e.pointerId); e.preventDefault();
+      }
+    });
+    viewport.addEventListener('pointermove', (e) => {
+      if (!naturalW || !naturalH) return;
+      if (panning) {
+        offsetX = panOX + (e.clientX - panStartX);
+        offsetY = panOY + (e.clientY - panStartY);
+        applyTransform();
+      }
+    });
+    viewport.addEventListener('pointerup', () => { panning = false; });
+    viewport.addEventListener('pointercancel', () => { panning = false; });
+
+    // Attach drawing to the overlay canvas
+    mask.addEventListener('mousedown', beginDraw);
+    mask.addEventListener('mousemove', moveDraw);
+    window.addEventListener('mouseup', endDraw);
+
+    mask.addEventListener('touchstart', beginDraw, { passive: false });
+    mask.addEventListener('touchmove', moveDraw, { passive: false });
+    mask.addEventListener('touchend', endDraw);
+
+    // Opacity control for the whole overlay
+    function updateOpacityUI(){
+      const v = parseInt(opacitySlider.value, 10) || 0; opacityLbl.textContent = v + '%';
+      mask.style.opacity = (v/100).toFixed(2);
+    }
+    opacitySlider.addEventListener('input', updateOpacityUI);
+
+    // --- UI wiring ---
+    modeBtn.addEventListener('click', toggleMode);
+    resetZoomBtn.addEventListener('click', resetZoom);
+    clearPaintBtn.addEventListener('click', clearPaint);
+    exportBtn.addEventListener('click', exportAnnotation);
+    undoBtn.addEventListener('click', undo);
+    intervalInput.addEventListener('change', startFlicker);
+    flickerOn.addEventListener('change', startFlicker);
+
+    // --- Image loading ---
+    function revokeSrc(el) { if (el.dataset.objUrl) { URL.revokeObjectURL(el.dataset.objUrl); el.dataset.objUrl = ''; } }
+
+    function baseName(fileName){
+      const lastDot = fileName.lastIndexOf('.');
+      if (lastDot === -1) return fileName;
+      return fileName.substring(0, lastDot);
+    }
+
+    function setupAfterLoad() {
+      if (!(loadedA && loadedB)) return;
+      // Assume same dimensions (as per requirement)
+      naturalW = imgA.naturalWidth; naturalH = imgA.naturalHeight;
+      stage.style.width = naturalW + 'px';
+      stage.style.height = naturalH + 'px';
+
+      imgAEl.width = naturalW; imgAEl.height = naturalH;
+      imgBEl.width = naturalW; imgBEl.height = naturalH;
+
+      mask.width = naturalW; mask.height = naturalH;
+      ctx.clearRect(0,0,mask.width,mask.height);
+      strokes.length = 0;
+
+      // Reset view state: start centered at 20%
+      setScaleAndCenter(0.2);
+      showA = true;
+      imgAEl.style.visibility = 'visible';
+      imgBEl.style.visibility = 'hidden';
+      startFlicker();
+      updateOpacityUI();
+    }
+
+    pairInput.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length < 2) { alert('Please select TWO image files (A and B).'); return; }
+      const [fa, fb] = files;
+      firstBaseName = baseName(fa.name);
+      fileInfo.textContent = files.map(f => f.name).slice(0,2).join(' · ');
+
+      // Revoke any previous object URLs
+      revokeSrc(imgAEl); revokeSrc(imgBEl);
+      loadedA = loadedB = false;
+
+      const urlA = URL.createObjectURL(fa);
+      const urlB = URL.createObjectURL(fb);
+      imgAEl.src = urlA; imgAEl.dataset.objUrl = urlA;
+      imgBEl.src = urlB; imgBEl.dataset.objUrl = urlB;
+
+      // Also populate helper Image objects to read natural sizes reliably
+      imgA = new Image(); imgB = new Image();
+      imgA.onload = () => { loadedA = true; setupAfterLoad(); };
+      imgB.onload = () => { loadedB = true; setupAfterLoad(); };
+      imgA.src = urlA; imgB.src = urlB;
+    });
+
+    // Cleanup on unload
+    window.addEventListener('beforeunload', () => { stopFlicker(); revokeSrc(imgAEl); revokeSrc(imgBEl); });
+
+    // Init
+    setMode('paint');
+    updateOpacityUI();
+    setStatus();
+  </script>
+</body>
+</html>
