@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Image Pair Difference Annotator</title>
   <style>
-    :root { --accent:#ff9500; --bg:#f5f5f7; --ink:#222; }
+    :root { --accent:#ff9500; --bg:#121212; --ink:#f5f5f5; }
     *{ box-sizing:border-box }
     html,body{ height:100% }
     body{ margin:0; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink); background:var(--bg) }
-    #toolbar{ position:sticky; top:0; z-index:10; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.5rem; background:#fff; border-bottom:1px solid #ddd }
-    #toolbar .group{ display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .5rem; background:#fafafa; border:1px solid #e5e5e5; border-radius:8px }
+    #toolbar{ position:sticky; top:0; z-index:10; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.5rem; background:#181818; border-bottom:1px solid #333 }
+    #toolbar .group{ display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .5rem; background:#1f1f1f; border:1px solid #333; border-radius:8px }
     button,input[type="number"],input[type="range"],label,input[type="checkbox"]{ font:inherit }
-    button{ padding:.4rem .7rem; border-radius:8px; border:1px solid #ccc; background:#fff; cursor:pointer }
+    button{ padding:.4rem .7rem; border-radius:8px; border:1px solid #444; background:#2a2a2a; color:var(--ink); cursor:pointer }
     button.primary{ border-color:var(--accent) }
     button:disabled{ opacity:.6; cursor:not-allowed }
     #status{ margin-left:auto; opacity:.8 }
 
-    #viewport{ position:relative; width:100%; height:calc(100vh - 64px); overflow:hidden; background:#eee; cursor:crosshair; user-select:none; touch-action:none }
+    #viewport{ position:relative; width:100%; height:calc(100vh - 64px); overflow:hidden; background:#181818; cursor:crosshair; user-select:none; touch-action:none }
     #stage{ position:absolute; left:0; top:0; transform-origin:0 0; image-rendering:auto }
     .layer{ position:absolute; left:0; top:0; user-drag:none; -webkit-user-drag:none }
     #imgA,#imgB{ max-width:none; display:block }
