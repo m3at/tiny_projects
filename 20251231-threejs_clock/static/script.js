@@ -770,11 +770,11 @@ function randomizeTime() {
 // CAMERA MANAGEMENT
 // ============================================================================
 function randomizeCamera() {
-  const angleVariation = 35 * (Math.PI / 180);
+  const angleVariation = 45 * (Math.PI / 180);
   const xAngle = (Math.random() - 0.5) * 2 * angleVariation;
   const yAngle = (Math.random() - 0.5) * 2 * angleVariation;
 
-  const zoomFactor = randomInRange(0.7, 1.4);
+  const zoomFactor = randomInRange(0.8, 1.8);
   const distance = BASE_CAMERA_DISTANCE * zoomFactor;
 
   camera.position.x = distance * Math.sin(yAngle);
@@ -790,7 +790,21 @@ function randomizeCamera() {
 // ============================================================================
 // APPEARANCE RANDOMIZATION
 // ============================================================================
-function randomizeAppearance() {
+function randomizeBackground() {
+  const hdriCount = Object.keys(loadedHDRIs).length;
+  if (hdriCount === 0) return;
+
+  // Environment for reflections (70% chance)
+  appearance.useEnvironment = Math.random() > 0.3;
+  appearance.hdriIndex = Math.floor(Math.random() * hdriCount);
+
+  // HDRI Background (90% chance)
+  appearance.useHdriBackground = Math.random() > 0.1;
+  appearance.hdriBackgroundRotation = Math.random() * Math.PI * 2;
+  appearance.hdriBackgroundBlur = randomInRange(0, 0.15);
+}
+
+function randomizeStyle() {
   const palette = randomChoice(COLOR_PALETTES);
 
   // Colors
@@ -838,24 +852,16 @@ function randomizeAppearance() {
   appearance.faceTexture = Math.random() > 0.75 ? randomChoice(faceTextures) : null;
   appearance.rimTexture = Math.random() > 0.65 ? 'metal' : null;
 
-  // Environment (70% chance to use for reflections)
-  const hdriCount = Object.keys(loadedHDRIs).length;
-  appearance.useEnvironment = Math.random() > 0.3 && hdriCount > 0;
-  appearance.hdriIndex = Math.floor(Math.random() * hdriCount);
-
-  // HDRI Background (90% chance)
-  appearance.useHdriBackground = Math.random() > 0.1 && hdriCount > 0;
-  appearance.hdriBackgroundRotation = Math.random() * Math.PI * 2;
-  appearance.hdriBackgroundBlur = randomInRange(0, 0.15);
-
   // Sun position and color
-  appearance.sunElevation = randomInRange(5, 90);    // 5 to 90 degrees above horizon
-  appearance.sunAzimuth = randomInRange(-60, 60);    // constrained to cast visible shadows
+  appearance.sunElevation = randomInRange(5, 90);
+  appearance.sunAzimuth = randomInRange(-60, 60);
   appearance.sunColor = randomizeSunColor();
+}
 
-  // Update scene
+function randomizeAppearance() {
+  randomizeBackground();
+  randomizeStyle();
   scene.background = new THREE.Color(appearance.backgroundColor);
-
   buildClock();
 }
 
@@ -894,8 +900,13 @@ window.addEventListener('resize', () => {
 // ============================================================================
 // API FOR DATASET GENERATION
 // ============================================================================
-function randomizeAll() {
-  randomizeAppearance();
+function randomizeAll(includeBackground = true) {
+  if (includeBackground) {
+    randomizeBackground();
+  }
+  randomizeStyle();
+  scene.background = new THREE.Color(appearance.backgroundColor);
+  buildClock();
   randomizeCamera();
   randomizeTime();
   render();
@@ -911,6 +922,8 @@ window.clockAPI = {
   randomizeTime,
   randomizeCamera,
   randomizeAppearance,
+  randomizeBackground,
+  randomizeStyle,
   setTime,
   getCurrentTime,
   render,

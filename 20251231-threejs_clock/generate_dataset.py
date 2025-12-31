@@ -7,7 +7,10 @@ from tqdm import tqdm
 
 
 async def generate_images(
-    n: int, output_dir: Path, base_url: str = "http://localhost:8080"
+    n: int,
+    output_dir: Path,
+    base_url: str = "http://localhost:8080",
+    bg_every: int = 16,
 ):
     """Generate n randomized clock images."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -29,9 +32,10 @@ async def generate_images(
         )
 
         for i in tqdm(range(n)):
-            # Randomize everything
-            await page.evaluate("window.clockAPI.randomizeAll()")
-            await asyncio.sleep(0.1)  # Brief pause for render
+            # Randomize background (HDRI) only every bg_every images
+            include_bg = "true" if i % bg_every == 0 else "false"
+            await page.evaluate(f"window.clockAPI.randomizeAll({include_bg})")
+            await asyncio.sleep(0.05)  # Brief pause for render
 
             # Get current time
             time_data = await page.evaluate("window.clockAPI.getCurrentTime()")
@@ -57,9 +61,15 @@ def main():
         "-o", "--output", type=Path, default=Path("dataset"), help="Output directory"
     )
     parser.add_argument("--url", default="http://localhost:8080", help="Server URL")
+    parser.add_argument(
+        "--bg-every",
+        type=int,
+        default=8,
+        help="Randomize HDRI background every N images",
+    )
     args = parser.parse_args()
 
-    asyncio.run(generate_images(args.n, args.output, args.url))
+    asyncio.run(generate_images(args.n, args.output, args.url, args.bg_every))
 
 
 if __name__ == "__main__":
