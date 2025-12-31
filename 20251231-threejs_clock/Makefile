@@ -21,6 +21,6 @@ serve: | static/hdri  ## Start FastAPI server
 	./serve.py
 
 # TODO: manage in uv. For now:
-# python -m pip install playwright tqdm && python3 -m playwright install chromium
+# uv pip install playwright tqdm && uv run python -m playwright install chromium
 dataset:  ## Generate dataset images (N=16 by default, e.g., make dataset N=100)
-	./generate_dataset.py -n $(or $(N),16)
+	uv run python generate_dataset.py -n $(or $(N),16)

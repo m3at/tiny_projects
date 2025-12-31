@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-"""Generate clock dataset images using Playwright."""
-
 import argparse
 import asyncio
 from pathlib import Path
@@ -16,9 +13,9 @@ async def generate_images(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as p:
-        print("Starting...")
+        print("Preparing browser")
         browser = await p.chromium.launch()
-        page = await browser.new_page(viewport={"width": 800, "height": 800})
+        page = await browser.new_page(viewport={"width": 600, "height": 600})
 
         await page.goto(base_url)
 
@@ -41,14 +38,12 @@ async def generate_images(
             h, m, s = time_data["hours"], time_data["minutes"], time_data["seconds"]
 
             # Generate filename: index-HH_MM_SS.png
-            filename = f"{i:04d}-{h:02d}_{m:02d}_{s:02d}.png"
+            filename = f"{i:06d}-{h:02d}_{m:02d}_{s:02d}.png"
             filepath = output_dir / filename
 
             # Take screenshot (canvas only, no UI buttons)
             canvas = page.locator("canvas")
             await canvas.screenshot(path=str(filepath))
-
-            # print(f"[{i + 1}/{n}] Saved: {filename}")
 
         await browser.close()
 
