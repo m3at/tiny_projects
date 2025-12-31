@@ -27,6 +27,10 @@ const HDRI_FILES = [
   'hdri/blue_photo_studio.hdr',
   'hdri/courtyard.hdr',
   'hdri/kiara_dawn.hdr',
+  // Validation set
+  // 'hdri/shanghai_bund.hdr',
+  // 'hdri/spiaggia_di_mondello.hdr',
+  // 'hdri/symmetrical_garden_02.hdr',
 ];
 
 const TEXTURE_FILES = {
@@ -34,6 +38,11 @@ const TEXTURE_FILES = {
   wood: 'textures/wood.jpg',
   leather: 'textures/leather.jpg',
   concrete: 'textures/concrete.jpg',
+  // Validation set
+  // metal: 'textures/corrugated_iron.jpg',
+  // wood: 'textures/kitchen_wood.jpg',
+  // leather: 'textures/bark.jpg',
+  // concrete: 'textures/rusty_metal.jpg',
 };
 
 const FONTS = [
@@ -58,9 +67,10 @@ const COLOR_PALETTES = [
   { face: 0x1e272e, rim: 0xf5f6fa, hands: 0xf5f6fa, accent: 0xffc048, bg: 0x353b48 },
   { face: 0xecf0f1, rim: 0xc0392b, hands: 0x2c3e50, accent: 0xc0392b, bg: 0x34495e },
   { face: 0x2c3e50, rim: 0xf39c12, hands: 0xecf0f1, accent: 0xe74c3c, bg: 0x1a1a2e },
-  { face: 0xfdf6e3, rim: 0x8b4513, hands: 0x5d3a1a, accent: 0xb8860b, bg: 0x2c1810 }, // Vintage wood
-  { face: 0x1c1c1c, rim: 0xc9b037, hands: 0xc9b037, accent: 0xffd700, bg: 0x0a0a0a }, // Luxury gold
-  { face: 0xe8e8e8, rim: 0x4682b4, hands: 0x2f4f4f, accent: 0x1e90ff, bg: 0x1a1a2e }, // Steel blue
+  // Validation set
+  // { face: 0xfdf6e3, rim: 0x8b4513, hands: 0x5d3a1a, accent: 0xb8860b, bg: 0x2c1810 }, // Vintage wood
+  // { face: 0x1c1c1c, rim: 0xc9b037, hands: 0xc9b037, accent: 0xffd700, bg: 0x0a0a0a }, // Luxury gold
+  // { face: 0xe8e8e8, rim: 0x4682b4, hands: 0x2f4f4f, accent: 0x1e90ff, bg: 0x1a1a2e }, // Steel blue
 ];
 
 const HAND_STYLES = ['classic', 'sword', 'baton', 'spade', 'needle', 'dauphine', 'breguet'];

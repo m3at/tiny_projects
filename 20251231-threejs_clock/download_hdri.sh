@@ -19,6 +19,9 @@ HDRIS=(
   "blue_photo_studio"
   "courtyard"
   "kiara_dawn"
+  "shanghai_bund",
+  "spiaggia_di_mondello"
+  "symmetrical_garden_02"
 )
 
 echo "Downloading 4K HDRI files from Poly Haven..."
