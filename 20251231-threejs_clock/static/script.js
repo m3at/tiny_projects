@@ -6,6 +6,9 @@ import { HDRLoader } from 'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/j
 // ============================================================================
 // CONSTANTS
 // ============================================================================
+const IS_VALIDATION = false;
+// const IS_VALIDATION = true;
+
 const CLOCK_RADIUS = 5;
 const CLOCK_DEPTH = 0.3;
 const BASE_CAMERA_DISTANCE = 15;
@@ -16,7 +19,11 @@ const ROMAN_NUMERALS = ['XII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII',
 // ============================================================================
 // CONFIGURATION OPTIONS
 // ============================================================================
-const HDRI_FILES = [
+const HDRI_FILES = IS_VALIDATION ? [
+  'hdri/shanghai_bund.hdr',
+  'hdri/spiaggia_di_mondello.hdr',
+  'hdri/symmetrical_garden_02.hdr',
+] : [
   'hdri/studio_small_03.hdr',
   'hdri/venice_sunset.hdr',
   'hdri/industrial_workshop_foundry.hdr',
@@ -27,25 +34,25 @@ const HDRI_FILES = [
   'hdri/blue_photo_studio.hdr',
   'hdri/courtyard.hdr',
   'hdri/kiara_dawn.hdr',
-  // Validation set
-  // 'hdri/shanghai_bund.hdr',
-  // 'hdri/spiaggia_di_mondello.hdr',
-  // 'hdri/symmetrical_garden_02.hdr',
 ];
 
-const TEXTURE_FILES = {
+const TEXTURE_FILES = IS_VALIDATION ? {
+  metal: 'textures/corrugated_iron.jpg',
+  wood: 'textures/kitchen_wood.jpg',
+  leather: 'textures/bark.jpg',
+  concrete: 'textures/rusty_metal.jpg',
+} : {
   metal: 'textures/metal.jpg',
   wood: 'textures/wood.jpg',
   leather: 'textures/leather.jpg',
   concrete: 'textures/concrete.jpg',
-  // Validation set
-  // metal: 'textures/corrugated_iron.jpg',
-  // wood: 'textures/kitchen_wood.jpg',
-  // leather: 'textures/bark.jpg',
-  // concrete: 'textures/rusty_metal.jpg',
 };
 
-const FONTS = [
+const FONTS = IS_VALIDATION ? [
+  'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/fonts/droid/droid_serif_regular.typeface.json',
+  'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/fonts/droid/droid_sans_regular.typeface.json',
+  'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/fonts/droid/droid_sans_mono_regular.typeface.json',
+] : [
   'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/fonts/helvetiker_bold.typeface.json',
   'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/fonts/helvetiker_regular.typeface.json',
   'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/fonts/optimer_bold.typeface.json',
@@ -56,7 +63,11 @@ const FONTS = [
   'https://cdn.jsdelivr.net/npm/three@0.182.0/examples/fonts/droid/droid_sans_bold.typeface.json',
 ];
 
-const COLOR_PALETTES = [
+const COLOR_PALETTES = IS_VALIDATION ? [
+  { face: 0xfdf6e3, rim: 0x8b4513, hands: 0x5d3a1a, accent: 0xb8860b, bg: 0x2c1810 }, // Vintage wood
+  { face: 0x1c1c1c, rim: 0xc9b037, hands: 0xc9b037, accent: 0xffd700, bg: 0x0a0a0a }, // Luxury gold
+  { face: 0xe8e8e8, rim: 0x4682b4, hands: 0x2f4f4f, accent: 0x1e90ff, bg: 0x1a1a2e }, // Steel blue
+] : [
   { face: 0xf5f5f5, rim: 0x2c3e50, hands: 0x2c3e50, accent: 0xe74c3c, bg: 0x1a1a2e },
   { face: 0xffffff, rim: 0x1a1a1a, hands: 0x1a1a1a, accent: 0xff6b6b, bg: 0xf0f0f0 },
   { face: 0x2d3436, rim: 0x00cec9, hands: 0x00cec9, accent: 0xfd79a8, bg: 0x0d0d0d },
@@ -67,13 +78,11 @@ const COLOR_PALETTES = [
   { face: 0x1e272e, rim: 0xf5f6fa, hands: 0xf5f6fa, accent: 0xffc048, bg: 0x353b48 },
   { face: 0xecf0f1, rim: 0xc0392b, hands: 0x2c3e50, accent: 0xc0392b, bg: 0x34495e },
   { face: 0x2c3e50, rim: 0xf39c12, hands: 0xecf0f1, accent: 0xe74c3c, bg: 0x1a1a2e },
-  // Validation set
-  // { face: 0xfdf6e3, rim: 0x8b4513, hands: 0x5d3a1a, accent: 0xb8860b, bg: 0x2c1810 }, // Vintage wood
-  // { face: 0x1c1c1c, rim: 0xc9b037, hands: 0xc9b037, accent: 0xffd700, bg: 0x0a0a0a }, // Luxury gold
-  // { face: 0xe8e8e8, rim: 0x4682b4, hands: 0x2f4f4f, accent: 0x1e90ff, bg: 0x1a1a2e }, // Steel blue
 ];
 
-const HAND_STYLES = ['classic', 'sword', 'baton', 'spade', 'needle', 'dauphine', 'breguet'];
+const HAND_STYLES = IS_VALIDATION
+  ? ['breguet', 'leaf']
+  : ['classic', 'sword', 'baton', 'spade', 'needle', 'dauphine'];
 const NUMBER_DISPLAY_MODES = ['all', 'quarters', 'twelve_only', 'even', 'none'];
 const NUMBER_STYLES = ['arabic', 'roman'];
 const BEZEL_STYLES = ['simple', 'rounded', 'stepped', 'coin_edge', 'fluted'];
@@ -350,6 +359,15 @@ function createHandShape(style, length, width) {
       // Continue down the other side
       shape.lineTo(-width / 4, circleY - circleR);
       shape.closePath();
+      break;
+
+    case 'leaf':
+      // Leaf-shaped hand with curved edges
+      shape.moveTo(0, -0.2);
+      shape.quadraticCurveTo(width * 0.6, length * 0.2, width * 0.5, length * 0.5);
+      shape.quadraticCurveTo(width * 0.3, length * 0.8, 0, length);
+      shape.quadraticCurveTo(-width * 0.3, length * 0.8, -width * 0.5, length * 0.5);
+      shape.quadraticCurveTo(-width * 0.6, length * 0.2, 0, -0.2);
       break;
 
     case 'classic':
