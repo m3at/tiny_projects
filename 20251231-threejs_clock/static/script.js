@@ -892,6 +892,31 @@ window.addEventListener('resize', () => {
 });
 
 // ============================================================================
+// API FOR DATASET GENERATION
+// ============================================================================
+function randomizeAll() {
+  randomizeAppearance();
+  randomizeCamera();
+  randomizeTime();
+  render();
+}
+
+function getCurrentTime() {
+  return { ...currentTime };
+}
+
+// Expose API on window for external access
+window.clockAPI = {
+  randomizeAll,
+  randomizeTime,
+  randomizeCamera,
+  randomizeAppearance,
+  setTime,
+  getCurrentTime,
+  render,
+};
+
+// ============================================================================
 // INITIALIZATION
 // ============================================================================
 async function init() {
