@@ -88,19 +88,31 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.2;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.getElementById('container').appendChild(renderer.domElement);
 
 // Lighting
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
-directionalLight.position.set(5, 5, 10);
-scene.add(directionalLight);
-
 const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
 fillLight.position.set(-5, -2, 5);
 scene.add(fillLight);
+
+// Sun light (casts shadows)
+const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.camera.near = 1;
+sunLight.shadow.camera.far = 50;
+sunLight.shadow.camera.left = -10;
+sunLight.shadow.camera.right = 10;
+sunLight.shadow.camera.top = 10;
+sunLight.shadow.camera.bottom = -10;
+sunLight.shadow.bias = -0.001;
+scene.add(sunLight);
 
 // Clock group
 let clockGroup = new THREE.Group();
@@ -204,6 +216,11 @@ function getDefaultAppearance() {
     useHdriBackground: false,
     hdriBackgroundRotation: 0,
     hdriBackgroundBlur: 0.3,
+    // Sun (for shadows)
+    sunElevation: 45,  // degrees above horizon (5-90)
+    sunAzimuth: 0,     // degrees around clock
+    sunColor: 0xffffff,
+    sunDistance: 25,
   };
 }
 
@@ -213,6 +230,38 @@ function randomInRange(min, max) {
 
 function randomChoice(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function updateSun() {
+  // Convert elevation and azimuth to position
+  // Sun is "behind" the clock (negative Z) to cast shadows forward
+  const elevationRad = appearance.sunElevation * (Math.PI / 180);
+  const azimuthRad = appearance.sunAzimuth * (Math.PI / 180);
+  const d = appearance.sunDistance;
+
+  // At elevation 90, sun is directly above (y = d)
+  // At elevation 0, sun is at horizon (y = 0)
+  // Azimuth rotates around the Y axis in the XZ plane
+  const y = d * Math.sin(elevationRad);
+  const horizontalDist = d * Math.cos(elevationRad);
+  const x = horizontalDist * Math.sin(azimuthRad);
+  const z = -horizontalDist * Math.cos(azimuthRad); // negative Z = behind clock
+
+  sunLight.position.set(x, y, z);
+  sunLight.color.setHex(appearance.sunColor);
+}
+
+function randomizeSunColor() {
+  // Colors from white to yellow to light orange
+  const sunColors = [
+    0xffffff,  // white
+    0xfffef0,  // warm white
+    0xfffacd,  // lemon chiffon
+    0xffefd5,  // papaya whip
+    0xffe4b5,  // moccasin
+    0xffd699,  // light orange
+  ];
+  return randomChoice(sunColors);
 }
 
 // ============================================================================
@@ -323,7 +372,9 @@ function createHand(style, length, width, depth, color) {
     material = new THREE.MeshPhongMaterial({ color, shininess: 80 });
   }
 
-  return new THREE.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  return mesh;
 }
 
 // ============================================================================
@@ -376,6 +427,7 @@ function createBezel() {
         baseMaterial()
       );
       inner.position.z = CLOCK_DEPTH / 2 + depth * 0.3;
+      inner.castShadow = true;
       group.add(inner);
 
       const outer = new THREE.Mesh(
@@ -383,6 +435,7 @@ function createBezel() {
         baseMaterial()
       );
       outer.position.z = CLOCK_DEPTH / 2;
+      outer.castShadow = true;
       group.add(outer);
       return group;
 
@@ -394,6 +447,7 @@ function createBezel() {
         baseMaterial()
       );
       mainRing.position.z = CLOCK_DEPTH / 2;
+      mainRing.castShadow = true;
       coinGroup.add(mainRing);
 
       // Add notches
@@ -408,6 +462,7 @@ function createBezel() {
         notch.position.y = Math.sin(angle) * CLOCK_RADIUS;
         notch.position.z = CLOCK_DEPTH / 2;
         notch.rotation.z = angle;
+        notch.castShadow = true;
         coinGroup.add(notch);
       }
       return coinGroup;
@@ -420,6 +475,7 @@ function createBezel() {
         baseMaterial()
       );
       baseRing.position.z = CLOCK_DEPTH / 2;
+      baseRing.castShadow = true;
       flutedGroup.add(baseRing);
 
       const fluteCount = 40;
@@ -433,6 +489,7 @@ function createBezel() {
         flute.position.y = Math.sin(angle) * CLOCK_RADIUS;
         flute.position.z = CLOCK_DEPTH / 2;
         flute.rotation.x = Math.PI / 2;
+        flute.castShadow = true;
         flutedGroup.add(flute);
       }
       return flutedGroup;
@@ -446,6 +503,7 @@ function createBezel() {
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.z = CLOCK_DEPTH / 2;
+  mesh.castShadow = true;
   return mesh;
 }
 
@@ -465,8 +523,9 @@ function buildClock() {
     scene.environment = null;
   }
 
-  // Update background
+  // Update background and sun
   updateBackground();
+  updateSun();
 
   buildClockFace();
   const bezel = createBezel();
@@ -524,6 +583,7 @@ function buildClockFace() {
 
   const face = new THREE.Mesh(geometry, material);
   face.rotation.x = Math.PI / 2;
+  face.receiveShadow = true;
   clockGroup.add(face);
 }
 
@@ -555,6 +615,7 @@ function buildMarkers() {
       CLOCK_DEPTH / 2 + 0.03
     );
     marker.rotation.z = angle;
+    marker.castShadow = true;
     clockGroup.add(marker);
   }
 
@@ -641,6 +702,7 @@ function buildNumbers() {
       Math.sin(angle) * distance - textHeight / 2,
       CLOCK_DEPTH / 2 + 0.02
     );
+    mesh.castShadow = true;
     clockGroup.add(mesh);
   }
 }
@@ -658,6 +720,7 @@ function buildCenterCap() {
   const cap = new THREE.Mesh(geometry, material);
   cap.rotation.x = Math.PI / 2;
   cap.position.z = CLOCK_DEPTH / 2 + 0.18;
+  cap.castShadow = true;
   clockGroup.add(cap);
 }
 
@@ -784,6 +847,11 @@ function randomizeAppearance() {
   appearance.useHdriBackground = Math.random() > 0.1 && hdriCount > 0;
   appearance.hdriBackgroundRotation = Math.random() * Math.PI * 2;
   appearance.hdriBackgroundBlur = randomInRange(0, 0.15);
+
+  // Sun position and color
+  appearance.sunElevation = randomInRange(5, 90);    // 5 to 90 degrees above horizon
+  appearance.sunAzimuth = randomInRange(-60, 60);    // constrained to cast visible shadows
+  appearance.sunColor = randomizeSunColor();
 
   // Update scene
   scene.background = new THREE.Color(appearance.backgroundColor);
