@@ -64,18 +64,18 @@ const FONTS = IS_VALIDATION ? [
 ];
 
 const COLOR_PALETTES = IS_VALIDATION ? [
-  { face: 0xfdf6e3, rim: 0x8b4513, hands: 0x5d3a1a, accent: 0xb8860b, bg: 0x2c1810 }, // Vintage wood
-  { face: 0x1c1c1c, rim: 0xc9b037, hands: 0xc9b037, accent: 0xffd700, bg: 0x0a0a0a }, // Luxury gold
-  { face: 0xe8e8e8, rim: 0x4682b4, hands: 0x2f4f4f, accent: 0x1e90ff, bg: 0x1a1a2e }, // Steel blue
+  { face: 0xfdf6e3, rim: 0x8b4513, hands: 0x5d3a1a, accent: 0xb8860b, bg: 0x2c1810 },
+  { face: 0x383838, rim: 0xc9b037, hands: 0xc9b037, accent: 0xffd700, bg: 0x0a0a0a },
+  { face: 0xe8e8e8, rim: 0x4682b4, hands: 0x2f4f4f, accent: 0x1e90ff, bg: 0x1a1a2e },
 ] : [
   { face: 0xf5f5f5, rim: 0x2c3e50, hands: 0x2c3e50, accent: 0xe74c3c, bg: 0x1a1a2e },
   { face: 0xffffff, rim: 0x1a1a1a, hands: 0x1a1a1a, accent: 0xff6b6b, bg: 0xf0f0f0 },
-  { face: 0x2d3436, rim: 0x00cec9, hands: 0x00cec9, accent: 0xfd79a8, bg: 0x0d0d0d },
+  { face: 0x434d50, rim: 0x00cec9, hands: 0x00cec9, accent: 0xfd79a8, bg: 0x0d0d0d },
   { face: 0xffeaa7, rim: 0xd63031, hands: 0xd63031, accent: 0x00b894, bg: 0x2d3436 },
   { face: 0xdfe6e9, rim: 0x6c5ce7, hands: 0x6c5ce7, accent: 0xfdcb6e, bg: 0x2d3436 },
   { face: 0x55efc4, rim: 0x00b894, hands: 0x2d3436, accent: 0xe17055, bg: 0x0d0d0d },
   { face: 0xfad390, rim: 0xe55039, hands: 0x4a4a4a, accent: 0x4a4a4a, bg: 0x1e3799 },
-  { face: 0x1e272e, rim: 0xf5f6fa, hands: 0xf5f6fa, accent: 0xffc048, bg: 0x353b48 },
+  { face: 0x303f4a, rim: 0xf5f6fa, hands: 0xf5f6fa, accent: 0xffc048, bg: 0x353b48 },
   { face: 0xecf0f1, rim: 0xc0392b, hands: 0x2c3e50, accent: 0xc0392b, bg: 0x34495e },
   { face: 0x2c3e50, rim: 0xf39c12, hands: 0xecf0f1, accent: 0xe74c3c, bg: 0x1a1a2e },
 ];
@@ -268,6 +268,7 @@ function updateSun() {
 
   sunLight.position.set(x, y, z);
   sunLight.color.setHex(appearance.sunColor);
+
 }
 
 function randomizeSunColor() {
@@ -881,7 +882,7 @@ function randomizeStyle() {
   appearance.rimTexture = Math.random() > 0.65 ? 'metal' : null;
 
   // Sun position and color
-  appearance.sunElevation = randomInRange(5, 90);
+  appearance.sunElevation = randomInRange(10, 75);
   appearance.sunAzimuth = randomInRange(-60, 60);
   appearance.sunColor = randomizeSunColor();
 }
