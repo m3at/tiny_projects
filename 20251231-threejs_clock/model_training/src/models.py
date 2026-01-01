@@ -1,7 +1,43 @@
 import math
+from typing import Annotated
 
 import torch
 from torch import nn
+
+
+# Copied from vLLM
+class TensorShape:
+    def __init__(
+        self,
+        *dims: int | str,
+        dynamic_dims: set[str] | None = None,
+    ) -> None:
+        super().__init__()
+
+        self.dims = dims
+        self.dynamic_dims = dynamic_dims if dynamic_dims else set()
+
+    def resolve(self, **bindings: int) -> tuple[int | str, ...]:
+        resolved = list[int | str]()
+        for dim in self.dims:
+            if isinstance(dim, str) and dim in bindings:
+                resolved.append(bindings[dim])
+            else:
+                resolved.append(dim)
+        return tuple(resolved)
+
+    def __str__(self) -> str:
+        """Return a string representation of the tensor shape."""
+        dim_strs = []
+        for dim in self.dims:
+            if isinstance(dim, str):
+                if dim in self.dynamic_dims:
+                    dim_strs.append(f"{dim}*")  # Mark dynamic dimensions with *
+                else:
+                    dim_strs.append(dim)
+            else:
+                dim_strs.append(str(dim))
+        return f"({', '.join(dim_strs)})"
 
 
 class DinoBilinear(nn.Module):
@@ -15,7 +51,7 @@ class DinoBilinear(nn.Module):
         self.interpolate_offset = dino.interpolate_offset
 
         self.N = self.pos_embed.shape[1] - 1
-        self.M = int(math.sqrt(self.N))
+        self.M = int(math.sqrt(self.N))  # type:ignore[unresolved-attribute]
 
         self.patch_embed = dino.patch_embed
         self.blocks = nn.Sequential(*dino.blocks)
@@ -46,7 +82,7 @@ class DinoBilinear(nn.Module):
         patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
-    def forward(self, x):
+    def forward(self, x) -> Annotated[torch.Tensor, TensorShape("b", "n", "c")]:
         """Returns normalized tokens: (B, 1 + N, C)"""
         _, _, w, h = x.shape
         x = self.patch_embed(x)  # (B, N, C)
@@ -80,7 +116,7 @@ class _DecoderBlock(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, q, kv):
+    def forward(self, q, kv) -> torch.Tensor:
         # q: (B, Q, D), kv: (B, S, D)
         q2 = self.ln1(q)
         q_sa, _ = self.self_attn(q2, q2, q2, need_weights=False)
@@ -137,7 +173,7 @@ class ClockModel(nn.Module):
             nn.Linear(d_model // 2, 2),
         )
 
-    def forward(self, x):
+    def forward(self, x) -> Annotated[torch.Tensor, TensorShape("b", 4)]:
         x = (x - self.norm_mean) / self.norm_std
 
         tokens = self.backbone.forward(x)  # (B, 1+N, C)

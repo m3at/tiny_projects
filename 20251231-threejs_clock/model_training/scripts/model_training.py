@@ -14,7 +14,7 @@ from src.dataset import ClockDataset
 from src.models import ClockModel, DinoBilinear
 from src.settings import p_env
 from src.training import train_epoch, validate
-from src.visualization import plot_predictions
+from src.visualization import plot_losses, plot_predictions
 
 plt.style.use("seaborn-v0_8")
 
@@ -37,13 +37,13 @@ else:
 
 has_cuda = str(DEVICE) == "cuda"
 
-TARGET_DIM = 224
-# TARGET_DIM = 448
+# TARGET_DIM = 224
+TARGET_DIM = 448
 DTYPE = torch.float32
 # NUM_EPOCHS = 64
-NUM_EPOCHS = 300
+NUM_EPOCHS = 500
 # UNFREEZE_AT_EPOCH = 32
-UNFREEZE_AT_EPOCH = 200
+UNFREEZE_AT_EPOCH = 300
 # UNFREEZE_AT_EPOCH = 1_000
 BATCH_SIZE = 512
 LEARNING_RATE = 1e-4
@@ -62,7 +62,7 @@ def main():
         p_env.VALIDATION_DIR, augment=False, max_samples=None, target_dim=TARGET_DIM, dtype=DTYPE
     )
 
-    num_workers = 8 if has_cuda else 0
+    num_workers = 12 if has_cuda else 0
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=num_workers)
 
@@ -72,9 +72,9 @@ def main():
     # map_location="cpu"
     # Load pretrained DINOv2
     # 300M
-    # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14")
+    backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14")
     # 86M params
-    backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
+    # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
     # 21M params
     # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
     # backbone_original = backbone_original.eval()
@@ -85,9 +85,8 @@ def main():
     model = ClockModel(
         backbone,
         backbone_channels=backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
-        # d_model=512,
-        # nhead=8,
-        d_model=256,
+        d_model=512,
+        # d_model=256,
         nhead=8,
         depth=2,
         dim_ff=None,
@@ -194,29 +193,7 @@ def main():
     # Plot training history
     if history:
         df = pd.DataFrame(history).set_index("epoch")
-
-        _, axes = plt.subplots(dpi=220, figsize=(13, 3), ncols=2, sharex=True)
-
-        # Loss plot
-        df[["train_loss", "val_loss"]].plot(ax=axes[0], linewidth=1.4)
-        axes[0].set_title("Losses")
-        axes[0].set_xlabel(f"Epoch\n\nTotal wall clock: {elapsed:.1f}s")
-        axes[0].set_ylabel("MSE Loss")
-        axes[0].grid(True, alpha=0.3)
-
-        # Error plot (convert to degrees)
-        df_deg = df[["hour_error_rad", "minute_error_rad"]] * 180 / np.pi
-        df_deg.plot(ax=axes[1], linewidth=1.4)
-        axes[1].set_title("Angle Errors on Validation Set")
-        axes[1].set_xlabel(f"Epoch\n\nTotal wall clock: {elapsed:.1f}s")
-        axes[1].set_ylabel("Error (degrees)")
-        axes[1].grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        plot_path = results_dir / "training_losses.png"
-        plt.savefig(plot_path, bbox_inches="tight")
-        print(f"Training plot saved to {plot_path}")
-        plt.close()
+        plot_losses(df, results_dir / "training_losses.png", elapsed, UNFREEZE_AT_EPOCH)
 
 
 if __name__ == "__main__":
