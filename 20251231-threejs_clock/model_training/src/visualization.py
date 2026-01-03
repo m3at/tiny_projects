@@ -6,11 +6,12 @@ import numpy as np
 import pandas as pd
 import torch
 
+from src.dataset import ClockDataset
 from src.models import ClockModel
 
 
 def sincos_to_time(elem: torch.Tensor):
-    """Convert sin/cos values to hours and minutes."""
+    """Convert sin/cos to hours and minutes."""
     sin_h, cos_h, sin_m, cos_m = (elem[0].item(), elem[1].item(), elem[2].item(), elem[3].item())
 
     # Get angles in radians
@@ -31,16 +32,9 @@ def sincos_to_time(elem: torch.Tensor):
 
 
 @torch.inference_mode()
-def plot_predictions(model: ClockModel, dataset, device, output_path, num_samples=4):
-    """Plot predictions on sample images.
-
-    Args:
-        model: The model to use for predictions
-        dataset: The dataset to sample from
-        device: The device to run predictions on
-        output_path: Path to save the plot
-        num_samples: Number of samples to plot (default 4 for 2x2 grid)
-    """
+def plot_predictions(
+    model: ClockModel, dataset: ClockDataset, device: torch.device, output_path: Path, num_samples: int = 4
+):
     model.eval()
 
     # Sample random indices
@@ -79,7 +73,7 @@ def plot_predictions(model: ClockModel, dataset, device, output_path, num_sample
     print(f"Predictions plot saved to {output_path}")
 
 
-def plot_losses(df: pd.DataFrame, output_path: Path, elapsed: float, unfreeze_at_epoch: int):
+def plot_losses(df: pd.DataFrame, output_path: Path, elapsed: float, unfreeze_at_epoch: int, drop_lr_at_epoch: int):
     max_x = len(df)
 
     _, axes = plt.subplots(dpi=220, figsize=(10, 6), nrows=2, sharex=True)
@@ -87,22 +81,29 @@ def plot_losses(df: pd.DataFrame, output_path: Path, elapsed: float, unfreeze_at
     # Loss plot
     df[["train_loss", "val_loss"]].plot(ax=axes[0], linewidth=1.4)
     axes[0].set_title("Losses")
-    axes[0].set_ylabel("MSE Loss")
-    axes[0].set_yscale("log")
+    axes[0].set_ylabel("MSE loss")
+    axes[0].set_yscale("symlog")
+    # axes[0].set_ylim(-0.05, 1.05)
+    axes[0].set_ylim(0.0, 1.05)
 
     # Error plot (convert to degrees)
     df_deg = df[["hour_error_rad", "minute_error_rad"]] * 180 / np.pi
     df_deg.plot(ax=axes[1], linewidth=1.4)
-    axes[1].set_title("Angle Errors on Validation Set")
+    axes[1].set_title("Angle errors on validation set")
     axes[1].set_ylabel("Error (degrees)")
-    axes[1].set_yscale("log")
+    axes[1].set_yscale("symlog")
 
     axes[1].set_xlabel(f"Epoch\n\nTotal wall clock: {elapsed:.1f}s")
     axes[1].set_xlim(0, max_x)
+    axes[1].set_ylim(0.0, None)
 
     if unfreeze_at_epoch < max_x:
         for ax in axes:
-            ax.axvline(unfreeze_at_epoch, linestyle="--", alpha=0.7, linewidth=1.3)
+            ax.axvline(unfreeze_at_epoch, linestyle="--", alpha=0.7, linewidth=1.3, color="black")
+
+    if drop_lr_at_epoch < max_x:
+        for ax in axes:
+            ax.axvline(drop_lr_at_epoch, linestyle="dotted", alpha=0.7, linewidth=1.3, color="black")
 
     plt.tight_layout()
     plt.savefig(output_path, bbox_inches="tight")

@@ -37,18 +37,15 @@ else:
 
 has_cuda = str(DEVICE) == "cuda"
 
-# TARGET_DIM = 224
 TARGET_DIM = 448
 DTYPE = torch.float32
-# NUM_EPOCHS = 64
-NUM_EPOCHS = 500
-# UNFREEZE_AT_EPOCH = 32
-UNFREEZE_AT_EPOCH = 300
-# UNFREEZE_AT_EPOCH = 1_000
+
+NUM_EPOCHS = 1500
+UNFREEZE_AT_EPOCH = 900
+DROP_LR_AT_EPOCH = 1200
+
 BATCH_SIZE = 512
 LEARNING_RATE = 1e-4
-# LEARNING_RATE = 6e-4
-# LEARNING_RATE = 3e-3
 PRINT_EVERY_N_EPOCH = 1
 
 print(f"Device: {DEVICE}, dtype: {DTYPE}")
@@ -69,7 +66,6 @@ def main():
     print(f"Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
 
     print("\n=== Loading DINOv2 backbone ===")
-    # map_location="cpu"
     # Load pretrained DINOv2
     # 300M
     backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14")
@@ -77,7 +73,6 @@ def main():
     # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
     # 21M params
     # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
-    # backbone_original = backbone_original.eval()
 
     backbone = DinoBilinear(backbone_original)
 
@@ -86,9 +81,10 @@ def main():
         backbone,
         backbone_channels=backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
         d_model=512,
-        # d_model=256,
-        nhead=8,
-        depth=2,
+        # nhead=8,
+        # depth=2,
+        nhead=16,
+        depth=3,
         dim_ff=None,
         dropout=0.0,
     ).to(DEVICE)
@@ -166,6 +162,10 @@ def main():
                     optimizer, start_factor=1e-7, end_factor=1.0, total_iters=warmup_steps
                 )
 
+            # One-off learning rate drop instead of proper scheduling, good enough
+            if epoch == DROP_LR_AT_EPOCH:
+                optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE / 5, weight_decay=0.0)
+
     except KeyboardInterrupt:
         if epoch == 0:
             return
@@ -193,7 +193,7 @@ def main():
     # Plot training history
     if history:
         df = pd.DataFrame(history).set_index("epoch")
-        plot_losses(df, results_dir / "training_losses.png", elapsed, UNFREEZE_AT_EPOCH)
+        plot_losses(df, results_dir / "training_losses.png", elapsed, UNFREEZE_AT_EPOCH, DROP_LR_AT_EPOCH)
 
 
 if __name__ == "__main__":

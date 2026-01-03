@@ -56,7 +56,6 @@ class DinoBilinear(nn.Module):
         self.patch_embed = dino.patch_embed
         self.blocks = nn.Sequential(*dino.blocks)
         self.norm = dino.norm
-        # self.head = dino.head
 
     def interpolate_pos_encoding(self, x, w, h):
         previous_dtype = x.dtype
