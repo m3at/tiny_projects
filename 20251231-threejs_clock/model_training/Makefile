@@ -70,3 +70,10 @@ lint:  ## Lint and format python code
 
 train:  ## Model training
 	uv run scripts/model_training.py
+
+infer:  ## Inference on single element (usage: make infer IMAGE=path/to/image.png)
+	@if [ -z "$(IMAGE)" ]; then \
+		echo "Error: IMAGE variable is required. Usage: make infer IMAGE=path/to/image.png"; \
+		exit 1; \
+	fi
+	uv run scripts/single_inference.py "$(IMAGE)"

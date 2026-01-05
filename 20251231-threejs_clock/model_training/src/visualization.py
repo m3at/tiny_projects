@@ -48,7 +48,7 @@ def plot_predictions(
         image, target = dataset[sample_idx]
 
         # Get prediction
-        pred = model.forward(image.unsqueeze(0).to(device)).cpu().squeeze(0)
+        pred = model.forward(image.unsqueeze(0).to(device)).to(torch.float32).cpu().squeeze(0)
 
         # Convert to time
         pred_h, pred_m = sincos_to_time(pred)
@@ -57,7 +57,7 @@ def plot_predictions(
         # Plot image
         ax = axes[idx]
         # Convert from CHW to HWC and denormalize
-        image_np = image.permute(1, 2, 0).numpy()
+        image_np = image.permute(1, 2, 0).to(torch.float32).numpy()
         ax.imshow(image_np)
         ax.axis("off")
 
@@ -84,19 +84,19 @@ def plot_losses(
     df[["train_loss", "val_loss"]].plot(ax=axes[0], linewidth=1.4)
     axes[0].set_title("Losses")
     # axes[0].set_ylabel("MSE loss")
-    axes[0].set_ylabel("Angle loss")
+    axes[0].set_ylabel("Angle loss\nlogscale")
     axes[0].set_yscale("symlog")
-    # axes[0].set_ylim(-0.05, 1.05)
-    axes[0].set_ylim(0.0, 1.05)
+    # axes[0].set_ylim(0.0, 1.05)
+    axes[0].set_ylim(0.0, 0.85)
 
     # Error plot (convert to degrees)
     df_deg = df[["hour_error_rad", "minute_error_rad"]] * 180 / np.pi
     df_deg.plot(ax=axes[1], linewidth=1.4)
     axes[1].set_title("Angle errors on validation set")
-    axes[1].set_ylabel("Error (degrees)")
+    axes[1].set_ylabel("Error (degrees)\nlogscale")
     axes[1].set_yscale("symlog")
 
-    axes[1].set_xlabel(f"Epoch\n\nTotal wall clock: {elapsed:.1f}s")
+    axes[1].set_xlabel(f"Epoch\n\nTotal wall clock: {elapsed:.0f}s")
     axes[1].set_xlim(0, max_x)
     axes[1].set_ylim(0.0, None)
 

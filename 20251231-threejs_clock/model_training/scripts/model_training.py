@@ -3,15 +3,17 @@ import random
 from pathlib import Path
 from time import perf_counter
 
+import huggingface_hub
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 from safetensors.torch import load_file, save_file
 from torch.utils.data import DataLoader
+from transformers import AutoModel
 
 from src.dataset import ClockDataset
-from src.models import ClockModel, DinoBilinear
+from src.models import ClockModel, DinoV3Backbone
 from src.settings import p_env
 from src.training import train_epoch, validate
 from src.visualization import plot_losses, plot_predictions
@@ -37,20 +39,19 @@ else:
 
 has_cuda = str(DEVICE) == "cuda"
 
-TARGET_DIM = 448
-DTYPE = torch.float32
+# TARGET_DIM = 256
+TARGET_DIM = 512
+if has_cuda:
+    DTYPE = torch.bfloat16
+else:
+    DTYPE = torch.float32
 
-# NUM_EPOCHS = 1500
-# UNFREEZE_AT_EPOCH = 900
-# DROP_LR_AT_EPOCHS = 1200
-NUM_EPOCHS = 1500
-UNFREEZE_AT_EPOCH = 50
-DROP_LR_AT_EPOCHS = [200, 500, 1000]
+NUM_EPOCHS = 500
+DROP_LR_AT_EPOCHS = [200, 400]
 LR_DROP_FACTOR = 3
 
 BATCH_SIZE = 512
-# LEARNING_RATE = 1e-4
-LEARNING_RATE = 3e-5
+LEARNING_RATE = 3e-4
 PRINT_EVERY_N_EPOCH = 1
 
 print(f"Device: {DEVICE}, dtype: {DTYPE}")
@@ -60,6 +61,8 @@ def main():
     results_dir = Path("./results")
     results_dir.mkdir(exist_ok=True)
 
+    print(f"=== {TARGET_DIM=} {LEARNING_RATE=} ===")
+
     print("\n=== Loading datasets ===")
     # Use full datasets
     train_dataset = ClockDataset(p_env.TRAINING_DIR, augment=True, max_samples=None, target_dim=TARGET_DIM, dtype=DTYPE)
@@ -68,34 +71,65 @@ def main():
     )
 
     num_workers = 12 if has_cuda else 0
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=num_workers)
+    train_loader = DataLoader(
+        train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers, pin_memory=has_cuda
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=num_workers, pin_memory=has_cuda
+    )
 
     print(f"Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
 
-    print("\n=== Loading DINOv2 backbone ===")
-    # Load pretrained DINOv2
-    # 300M
-    backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14")
-    # 86M params
-    # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14")
-    # 21M params
-    # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14")
+    # DINO v2
+    # # Load pretrained DINOv2
+    # backbone_original = torch.hub.load(
+    #     "facebookresearch/dinov2",
+    #     # 300M
+    #     # "dinov2_vitl14",
+    #     # 86M params
+    #     # "dinov2_vitb14",
+    #     "dinov2_vitb14_reg",
+    #     # 21M params
+    #     # "dinov2_vits14",
+    # )
+    #
+    # # backbone = DinoBilinear(backbone_original)
+    # backbone = DinoBackbone(backbone_original)
 
-    backbone = DinoBilinear(backbone_original)
+    # DINO v3
+    # _k = "vitb16"
+    # _k = "vitl16"
+    _k = "vith16plus"
+    _nb_params = {
+        "vits16": "21M",
+        "vits16plus": "29M",
+        "vitb16": "86M",
+        "vitl16": "300M",
+        "vith16plus": "840M",
+    }[_k]
+    model_id = f"facebook/dinov3-{_k}-pretrain-lvd1689m"
+    print(f"\n=== Preparing with DINOv3 {_k} ({_nb_params}) backbone ===")
+
+    huggingface_hub.login(p_env.HF_TOKEN.get_secret_value())
+    dinov3 = AutoModel.from_pretrained(model_id, dtype=DTYPE).eval()
+    backbone = DinoV3Backbone(dinov3)
 
     # Build model
-    model = ClockModel(
-        backbone,
-        backbone_channels=backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
-        d_model=512,
-        # nhead=8,
-        # depth=2,
-        nhead=16,
-        depth=3,
-        dim_ff=None,
-        dropout=0.0,
-    ).to(DEVICE)
+    model = (
+        ClockModel(
+            backbone,
+            # backbone_channels=backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
+            backbone_channels=backbone.hidden_size,
+            # d_model=512,
+            d_model=1024,
+            nhead=16,
+            depth=3,
+            dim_ff=None,
+            dropout=0.0,
+        )
+        .to(DTYPE)
+        .to(DEVICE)
+    )
 
     # Load pre-trained model if it exists
     if (baseline_path := results_dir / "baseline.safetensors").exists():
@@ -104,7 +138,11 @@ def main():
         model.load_state_dict(state_dict)
 
     if has_cuda:
+        print("Compiling...", end=" ")
         model.compile()
+        # Run inference once
+        _ = model(torch.rand((1, 3, TARGET_DIM, TARGET_DIM), dtype=DTYPE, device=DEVICE))
+        print("Done")
 
     # Freeze backbone
     for param in model.backbone.parameters():
@@ -115,8 +153,8 @@ def main():
     print(f"Total params: {total_params:,}, Trainable: {trainable_params:,}")
 
     # Optimizer
-    warmup_steps = 32
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.0)
+    warmup_steps = 32  # =2 epochs
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.0, fused=has_cuda)
     scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1e-7, end_factor=1.0, total_iters=warmup_steps
     )
@@ -143,7 +181,8 @@ def main():
             "minute_error_rad": minute_err,
         }
         history.append(_scores)
-        print(" │ ".join(f"{k.replace('_', ' ').capitalize()} {v:>7.3f}" for k, v in _scores.items()))
+        print("        " + " │ ".join(f"{k.replace('_', ' ').capitalize()} {v:>7.3f}" for k, v in _scores.items()))
+        _lapse = perf_counter()
 
         for epoch in range(NUM_EPOCHS):
             # Train
@@ -161,24 +200,25 @@ def main():
 
             # Print val scores every X epochs
             if epoch % PRINT_EVERY_N_EPOCH == 0:
-                print(" │ ".join(f"{k.replace('_', ' ').capitalize()} {v:>7.3f}" for k, v in _scores.items()))
-
-            # Unfreeze backbone
-            if epoch == UNFREEZE_AT_EPOCH:
-                print("Unfreezing backbone")
-                for param in model.backbone.parameters():
-                    param.requires_grad = True
-                optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.0)
-                scheduler = torch.optim.lr_scheduler.LinearLR(
-                    optimizer, start_factor=1e-7, end_factor=1.0, total_iters=warmup_steps
+                _delta = perf_counter() - _lapse
+                print(
+                    f"[{_delta:>4.1f}s] "
+                    + " │ ".join(f"{k.replace('_', ' ').capitalize()} {v:>7.3f}" for k, v in _scores.items())
                 )
+                _lapse = perf_counter()
 
             # One-off learning rate drop instead of proper scheduling, good enough
             if epoch in DROP_LR_AT_EPOCHS:
-                for p in optimizer.param_groups:
-                    _lr = p["lr"]
-                    break
-                optimizer = torch.optim.AdamW(model.parameters(), lr=_lr / LR_DROP_FACTOR, weight_decay=0.0)
+                for group in optimizer.param_groups:
+                    group["lr"] /= LR_DROP_FACTOR
+                    # _lr = group["lr"]
+                    # break
+                # optimizer = torch.optim.AdamW(
+                #     model.parameters(), lr=_lr / LR_DROP_FACTOR, weight_decay=0.0, fused=has_cuda
+                # )
+                # scheduler = torch.optim.lr_scheduler.LinearLR(
+                #     optimizer, start_factor=1e-7, end_factor=1.0, total_iters=warmup_steps
+                # )
 
     except KeyboardInterrupt:
         if epoch == 0:
@@ -207,7 +247,7 @@ def main():
     # Plot training history
     if history:
         df = pd.DataFrame(history).set_index("epoch")
-        plot_losses(df, results_dir / "training_losses.png", elapsed, UNFREEZE_AT_EPOCH, DROP_LR_AT_EPOCHS)
+        plot_losses(df, results_dir / "training_losses.png", elapsed, 9999, DROP_LR_AT_EPOCHS)
 
 
 if __name__ == "__main__":

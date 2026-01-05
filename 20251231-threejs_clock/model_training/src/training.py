@@ -36,11 +36,19 @@ def validate(model, val_loader, device):
     for images, targets in val_loader:
         images, targets = images.to(device), targets.to(device)
 
-        # Forward
-        preds = model(images)
-
         # Loss
-        loss = nn.functional.mse_loss(preds, targets)
+        # preds = model(images)
+        # loss = nn.functional.mse_loss(preds, targets)
+
+        # Angle loss
+        preds = model(images)
+        p = preds.view(-1, 2, 2)
+        t = targets.view(-1, 2, 2)
+        hour_ang = angle_loss(p[:, 0], t[:, 0])
+        min_ang = angle_loss(p[:, 1], t[:, 1])
+        # min_ang = (min_ang + 1e-6).pow(0.5).mean()
+        loss = 0.5 * hour_ang.mean() + 1.0 * min_ang.mean()
+
         total_loss += loss.item()
 
         # Angle errors
@@ -65,26 +73,28 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, has_cuda):
     n_batches = 0
 
     for images, targets in train_loader:
-        images, targets = images.to(device), targets.to(device)
+        images, targets = images.to(device, non_blocking=True), targets.to(device, non_blocking=True)
 
         # Forward
         optimizer.zero_grad()
-        with torch.autocast(device_type="cuda", enabled=has_cuda):
-            # Simple MSE loss
-            # preds = model(images)
-            # loss = nn.functional.mse_loss(preds, targets)
 
-            # Angle loss
-            preds = model(images).view(-1, 2, 2)
-            t = targets.view(-1, 2, 2)
+        # with torch.autocast(device_type="cuda", enabled=has_cuda):
 
-            hour_ang = angle_loss(preds[:, 0], t[:, 0])
-            min_ang = angle_loss(preds[:, 1], t[:, 1])
+        # Simple MSE loss
+        # preds = model(images)
+        # loss = nn.functional.mse_loss(preds, targets)
 
-            # Concave power to amplify tiny angles
-            min_ang = (min_ang + 1e-6).pow(0.5).mean()
+        # Angle loss
+        preds = model(images).view(-1, 2, 2)
+        t = targets.view(-1, 2, 2)
 
-            loss = 0.5 * hour_ang.mean() + 1.0 * min_ang.mean()
+        hour_ang = angle_loss(preds[:, 0], t[:, 0])
+        min_ang = angle_loss(preds[:, 1], t[:, 1])
+
+        # Concave power to amplify tiny angles
+        # min_ang = (min_ang + 1e-6).pow(0.5).mean()
+
+        loss = 0.5 * hour_ang.mean() + 1.0 * min_ang.mean()
 
         # Backward
         loss.backward()

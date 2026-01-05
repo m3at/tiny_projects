@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -15,6 +16,7 @@ class PydanticSettings(BaseSettings, case_sensitive=False):
 
     TRAINING_DIR: Path
     VALIDATION_DIR: Path
+    HF_TOKEN: SecretStr
     RANDOM_SEED: int = 1337
 
 
