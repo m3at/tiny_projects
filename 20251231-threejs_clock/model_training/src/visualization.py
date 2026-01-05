@@ -73,7 +73,9 @@ def plot_predictions(
     print(f"Predictions plot saved to {output_path}")
 
 
-def plot_losses(df: pd.DataFrame, output_path: Path, elapsed: float, unfreeze_at_epoch: int, drop_lr_at_epoch: int):
+def plot_losses(
+    df: pd.DataFrame, output_path: Path, elapsed: float, unfreeze_at_epoch: int, drop_lr_at_epochs: list[int]
+):
     max_x = len(df)
 
     _, axes = plt.subplots(dpi=220, figsize=(10, 6), nrows=2, sharex=True)
@@ -81,7 +83,8 @@ def plot_losses(df: pd.DataFrame, output_path: Path, elapsed: float, unfreeze_at
     # Loss plot
     df[["train_loss", "val_loss"]].plot(ax=axes[0], linewidth=1.4)
     axes[0].set_title("Losses")
-    axes[0].set_ylabel("MSE loss")
+    # axes[0].set_ylabel("MSE loss")
+    axes[0].set_ylabel("Angle loss")
     axes[0].set_yscale("symlog")
     # axes[0].set_ylim(-0.05, 1.05)
     axes[0].set_ylim(0.0, 1.05)
@@ -101,9 +104,10 @@ def plot_losses(df: pd.DataFrame, output_path: Path, elapsed: float, unfreeze_at
         for ax in axes:
             ax.axvline(unfreeze_at_epoch, linestyle="--", alpha=0.7, linewidth=1.3, color="black")
 
-    if drop_lr_at_epoch < max_x:
+    if drop_lr_at_epochs[0] < max_x:
         for ax in axes:
-            ax.axvline(drop_lr_at_epoch, linestyle="dotted", alpha=0.7, linewidth=1.3, color="black")
+            for d in drop_lr_at_epochs:
+                ax.axvline(d, linestyle="dotted", alpha=0.7, linewidth=1.3, color="black")
 
     plt.tight_layout()
     plt.savefig(output_path, bbox_inches="tight")

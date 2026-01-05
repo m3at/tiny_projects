@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from torch.utils.data import DataLoader
 
 from src.dataset import ClockDataset
@@ -40,18 +40,26 @@ has_cuda = str(DEVICE) == "cuda"
 TARGET_DIM = 448
 DTYPE = torch.float32
 
+# NUM_EPOCHS = 1500
+# UNFREEZE_AT_EPOCH = 900
+# DROP_LR_AT_EPOCHS = 1200
 NUM_EPOCHS = 1500
-UNFREEZE_AT_EPOCH = 900
-DROP_LR_AT_EPOCH = 1200
+UNFREEZE_AT_EPOCH = 50
+DROP_LR_AT_EPOCHS = [200, 500, 1000]
+LR_DROP_FACTOR = 3
 
 BATCH_SIZE = 512
-LEARNING_RATE = 1e-4
+# LEARNING_RATE = 1e-4
+LEARNING_RATE = 3e-5
 PRINT_EVERY_N_EPOCH = 1
 
 print(f"Device: {DEVICE}, dtype: {DTYPE}")
 
 
 def main():
+    results_dir = Path("./results")
+    results_dir.mkdir(exist_ok=True)
+
     print("\n=== Loading datasets ===")
     # Use full datasets
     train_dataset = ClockDataset(p_env.TRAINING_DIR, augment=True, max_samples=None, target_dim=TARGET_DIM, dtype=DTYPE)
@@ -89,6 +97,12 @@ def main():
         dropout=0.0,
     ).to(DEVICE)
 
+    # Load pre-trained model if it exists
+    if (baseline_path := results_dir / "baseline.safetensors").exists():
+        print(f"Loading weights from {baseline_path}")
+        state_dict = load_file(baseline_path)
+        model.load_state_dict(state_dict)
+
     if has_cuda:
         model.compile()
 
@@ -106,9 +120,6 @@ def main():
     scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1e-7, end_factor=1.0, total_iters=warmup_steps
     )
-
-    results_dir = Path("./results")
-    results_dir.mkdir(exist_ok=True)
 
     # Plot predictions before training
     print("\n=== Plotting predictions before training ===")
@@ -163,8 +174,11 @@ def main():
                 )
 
             # One-off learning rate drop instead of proper scheduling, good enough
-            if epoch == DROP_LR_AT_EPOCH:
-                optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE / 5, weight_decay=0.0)
+            if epoch in DROP_LR_AT_EPOCHS:
+                for p in optimizer.param_groups:
+                    _lr = p["lr"]
+                    break
+                optimizer = torch.optim.AdamW(model.parameters(), lr=_lr / LR_DROP_FACTOR, weight_decay=0.0)
 
     except KeyboardInterrupt:
         if epoch == 0:
@@ -193,7 +207,7 @@ def main():
     # Plot training history
     if history:
         df = pd.DataFrame(history).set_index("epoch")
-        plot_losses(df, results_dir / "training_losses.png", elapsed, UNFREEZE_AT_EPOCH, DROP_LR_AT_EPOCH)
+        plot_losses(df, results_dir / "training_losses.png", elapsed, UNFREEZE_AT_EPOCH, DROP_LR_AT_EPOCHS)
 
 
 if __name__ == "__main__":

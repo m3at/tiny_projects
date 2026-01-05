@@ -33,7 +33,7 @@ class ClockDataset(Dataset):
                     transforms.ToDtype(torch.uint8, scale=False),
                     transforms.RandomResize(target_dim, int(target_dim * 1.2)),
                     transforms.RandomCrop((target_dim, target_dim)),
-                    transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+                    transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15),
                     transforms.ToDtype(dtype, scale=True),
                 ]
             )

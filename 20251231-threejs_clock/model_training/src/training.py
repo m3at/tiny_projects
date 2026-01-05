@@ -12,6 +12,18 @@ def angle_error(pred_sin, pred_cos, true_sin, true_cos):
     return torch.abs(diff)
 
 
+def angle_loss(pred_vec: torch.Tensor, true_vec: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """Angle error in radians in [0, pi]."""
+    pred_vec = nn.functional.normalize(pred_vec, dim=-1)
+    true_vec = nn.functional.normalize(true_vec, dim=-1)
+
+    # dot = cos(Δ)
+    dot = (pred_vec * true_vec).sum(dim=-1).clamp(-1.0 + eps, 1.0 - eps)
+    # cross_z = sin(Δ) for 2D vectors
+    cross = pred_vec[..., 0] * true_vec[..., 1] - pred_vec[..., 1] * true_vec[..., 0]
+    return torch.atan2(cross.abs(), dot)
+
+
 @torch.inference_mode()
 def validate(model, val_loader, device):
     """Validate the model."""
@@ -58,8 +70,21 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, has_cuda):
         # Forward
         optimizer.zero_grad()
         with torch.autocast(device_type="cuda", enabled=has_cuda):
-            preds = model(images)
-            loss = nn.functional.mse_loss(preds, targets)
+            # Simple MSE loss
+            # preds = model(images)
+            # loss = nn.functional.mse_loss(preds, targets)
+
+            # Angle loss
+            preds = model(images).view(-1, 2, 2)
+            t = targets.view(-1, 2, 2)
+
+            hour_ang = angle_loss(preds[:, 0], t[:, 0])
+            min_ang = angle_loss(preds[:, 1], t[:, 1])
+
+            # Concave power to amplify tiny angles
+            min_ang = (min_ang + 1e-6).pow(0.5).mean()
+
+            loss = 0.5 * hour_ang.mean() + 1.0 * min_ang.mean()
 
         # Backward
         loss.backward()
