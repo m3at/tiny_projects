@@ -47,10 +47,11 @@ else:
     DTYPE = torch.float32
 
 NUM_EPOCHS = 500
-DROP_LR_AT_EPOCHS = [200, 400]
+DROP_LR_AT_EPOCHS = [300, 400]
 LR_DROP_FACTOR = 3
 
 BATCH_SIZE = 512
+# LEARNING_RATE = 1e-4
 LEARNING_RATE = 3e-4
 PRINT_EVERY_N_EPOCH = 1
 
@@ -95,11 +96,12 @@ def main():
     #
     # # backbone = DinoBilinear(backbone_original)
     # backbone = DinoBackbone(backbone_original)
+    # backbone_channels = backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
 
     # DINO v3
     # _k = "vitb16"
-    # _k = "vitl16"
-    _k = "vith16plus"
+    _k = "vitl16"
+    # _k = "vith16plus"
     _nb_params = {
         "vits16": "21M",
         "vits16plus": "29M",
@@ -113,19 +115,21 @@ def main():
     huggingface_hub.login(p_env.HF_TOKEN.get_secret_value())
     dinov3 = AutoModel.from_pretrained(model_id, dtype=DTYPE).eval()
     backbone = DinoV3Backbone(dinov3)
+    backbone_channels = backbone.hidden_size
 
     # Build model
     model = (
         ClockModel(
             backbone,
-            # backbone_channels=backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
-            backbone_channels=backbone.hidden_size,
-            # d_model=512,
+            backbone_channels=backbone_channels,
             d_model=1024,
             nhead=16,
             depth=3,
             dim_ff=None,
             dropout=0.0,
+            polar_theta=64,
+            polar_r=32,
+            deform_points=8,
         )
         .to(DTYPE)
         .to(DEVICE)
@@ -160,8 +164,8 @@ def main():
     )
 
     # Plot predictions before training
-    print("\n=== Plotting predictions before training ===")
-    plot_predictions(model, val_dataset, DEVICE, results_dir / "predictions_before.png")
+    # print("\n=== Plotting predictions before training ===")
+    # plot_predictions(model, val_dataset, DEVICE, results_dir / "predictions_before.png")
 
     print("\n=== Training ===")
     start_time = perf_counter()
@@ -181,7 +185,9 @@ def main():
             "minute_error_rad": minute_err,
         }
         history.append(_scores)
-        print("        " + " │ ".join(f"{k.replace('_', ' ').capitalize()} {v:>7.3f}" for k, v in _scores.items()))
+        print(
+            "      " + " │ ".join(f"{k.split('_', maxsplit=1)[0].capitalize()} {v:>7.3f}" for k, v in _scores.items())
+        )
         _lapse = perf_counter()
 
         for epoch in range(NUM_EPOCHS):
@@ -202,8 +208,8 @@ def main():
             if epoch % PRINT_EVERY_N_EPOCH == 0:
                 _delta = perf_counter() - _lapse
                 print(
-                    f"[{_delta:>4.1f}s] "
-                    + " │ ".join(f"{k.replace('_', ' ').capitalize()} {v:>7.3f}" for k, v in _scores.items())
+                    f"[{_delta:>3.0f}s] "
+                    + " │ ".join(f"{k.split('_', maxsplit=1)[0].capitalize()} {v:>7.3f}" for k, v in _scores.items())
                 )
                 _lapse = perf_counter()
 
