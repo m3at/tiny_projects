@@ -94,7 +94,9 @@ def main():
         if torch.cuda.is_available():
             device = torch.device("cuda")
         elif torch.backends.mps.is_available():
-            device = torch.device("mps")
+            # RuntimeError: MPS: Unsupported Border padding mode
+            # device = torch.device("mps")
+            device = torch.device("cpu")
         else:
             device = torch.device("cpu")
 
@@ -129,8 +131,7 @@ def main():
     # backbone_original = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14", pretrained=False)
     # backbone = DinoBilinear(backbone_original)
     # Load DINOv3 backbone
-    # _k = "vitb16"
-    _k = "vith16plus"
+    _k = "vitl16"
     model_id = f"facebook/dinov3-{_k}-pretrain-lvd1689m"
     huggingface_hub.login(p_env.HF_TOKEN.get_secret_value())
     # dinov3 = AutoModel.from_pretrained(model_id).eval()
@@ -143,11 +144,14 @@ def main():
         backbone,
         # backbone_channels=backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
         backbone_channels=backbone.hidden_size,
-        d_model=512,
+        d_model=1024,
         nhead=16,
         depth=3,
         dim_ff=None,
         dropout=0.0,
+        polar_theta=64,
+        polar_r=32,
+        deform_points=8,
     ).to(device)
 
     # Load trained weights
