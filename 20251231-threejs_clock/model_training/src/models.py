@@ -93,6 +93,35 @@ def _make_polar_grid(
     return torch.stack([x, y], dim=-1)  # (B,T,R,2) in [-1,1]
 
 
+def _soft_argmax_2d01(logits: torch.Tensor) -> torch.Tensor:
+    B, _, H, W = logits.shape
+    w = torch.softmax(logits.view(B, -1).to(torch.float32), dim=-1).view(B, H, W)
+
+    xs = (torch.arange(W, device=logits.device, dtype=torch.float32) + 0.5) / float(W)
+    ys = (torch.arange(H, device=logits.device, dtype=torch.float32) + 0.5) / float(H)
+    xx = xs[None, None, :].expand(B, H, W)
+    yy = ys[None, :, None].expand(B, H, W)
+
+    cx = (w * xx).sum(dim=(1, 2))
+    cy = (w * yy).sum(dim=(1, 2))
+    return torch.stack([cx, cy], dim=-1)  # (B,2) in [0,1]
+
+
+class PolarMix(nn.Module):
+    def __init__(self, d_model: int):
+        super().__init__()
+        self.dw = nn.Conv2d(d_model, d_model, kernel_size=3, padding=0, groups=d_model)
+        self.act = nn.GELU()
+        self.pw = nn.Conv2d(d_model, d_model, kernel_size=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.pad(x, (1, 1, 0, 0), mode="replicate")
+        x = F.pad(x, (0, 0, 1, 1), mode="circular")
+        x = self.dw(x)
+        x = self.act(x)
+        return self.pw(x)
+
+
 class DeformableCrossAttention2D(nn.Module):
     """Lightweight 2D deformable attention over multiple 2D feature maps.
 
@@ -157,6 +186,10 @@ class DeformableCrossAttention2D(nn.Module):
             normalizer = torch.tensor([W, H], device=q.device, dtype=torch.float32)  # (2,)
 
             loc = ref[:, :, level, None, :] + (offsets[:, :, level, :, :] / normalizer)  # (B,Q,P,2) in ~[0,1]
+            if level == 1:
+                loc_y = torch.remainder(loc[..., 1], 1.0)
+                loc = torch.stack([loc[..., 0], loc_y], dim=-1)
+
             loc = loc * 2.0 - 1.0  # -> [-1,1] for grid_sample
 
             # grid_sample wants (B, out_h, out_w, 2)
@@ -245,7 +278,6 @@ class ClockModel(nn.Module):
 
         self.in_proj = nn.Linear(backbone_channels, d_model)
 
-        # learned center in image coords (cx,cy) in [0,1]
         self.center_head = nn.Sequential(
             nn.LayerNorm(backbone_channels),
             nn.Linear(backbone_channels, backbone_channels // 2),
@@ -253,21 +285,18 @@ class ClockModel(nn.Module):
             nn.Linear(backbone_channels // 2, 2),
         )
 
-        # Initialize center head to predict around (0.5, 0.5) at start
         last = self.center_head[-1]
-        # nn.init.zeros_(last.weight)
         nn.init.normal_(last.weight, std=1e-4)
         nn.init.zeros_(last.bias)
+
+        self.center_map = nn.Conv2d(backbone_channels, 1, kernel_size=1)
+        nn.init.zeros_(self.center_map.weight)
+        nn.init.zeros_(self.center_map.bias)
 
         self.polar_theta = polar_theta
         self.polar_r = polar_r
 
-        # Polar mixing (depthwise conv) to encourage radial/azimuthal primitives
-        self.polar_mix = nn.Sequential(
-            nn.Conv2d(d_model, d_model, kernel_size=3, padding=1, groups=d_model),
-            nn.GELU(),
-            nn.Conv2d(d_model, d_model, kernel_size=1),
-        )
+        self.polar_mix = PolarMix(d_model)
 
         # Per-level embedding (cart vs polar)
         self.level_embed = nn.Parameter(torch.randn(2, d_model) * 0.02)
@@ -298,13 +327,12 @@ class ClockModel(nn.Module):
         B, N, Cb = tokens.shape
         H, W = _infer_hw(N)
 
-        # learned center from pooled patch tokens
-        pooled = tokens.mean(dim=1)  # (B,Cb)
-        center01 = torch.sigmoid(self.center_head(pooled))  # (B,2) in [0,1]
-        center_norm = center01 * 2.0 - 1.0  # -> [-1,1] for grid_sample
-
-        # cart map in backbone channels (for polar sampling)
+        # cart map in backbone channels (for center + polar sampling)
         cart_cb = tokens.transpose(1, 2).reshape(B, Cb, H, W)
+
+        # learned center from a token-grid heatmap
+        center01 = _soft_argmax_2d01(self.center_map(cart_cb))  # (B,2) in [0,1]
+        center_norm = center01 * 2.0 - 1.0  # -> [-1,1] for grid_sample
 
         # polar resample -> (B,Cb,T,R) then tokens -> project to d_model
         grid = _make_polar_grid(center_norm, self.polar_theta, self.polar_r, device=x.device)
@@ -333,12 +361,12 @@ class ClockModel(nn.Module):
 
         # base refs per level:
         # - cart: learned center (cx,cy)
-        # - polar: (theta=0.5, r=0.0) anchor; offsets will explore theta
+        # - polar: (r=0.0, theta=0.5) anchor; offsets will explore theta
         base_ref = torch.stack(
             [
-                center01,  # (B,2)
+                center01,  # (B,2) (x,y)
                 torch.stack(
-                    [torch.full_like(center01[:, 0], 0.5), torch.zeros_like(center01[:, 1])],
+                    [torch.zeros_like(center01[:, 0]), torch.full_like(center01[:, 1], 0.5)],
                     dim=-1,
                 ),
             ],

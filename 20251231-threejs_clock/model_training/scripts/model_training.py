@@ -81,23 +81,6 @@ def main():
 
     print(f"Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
 
-    # DINO v2
-    # # Load pretrained DINOv2
-    # backbone_original = torch.hub.load(
-    #     "facebookresearch/dinov2",
-    #     # 300M
-    #     # "dinov2_vitl14",
-    #     # 86M params
-    #     # "dinov2_vitb14",
-    #     "dinov2_vitb14_reg",
-    #     # 21M params
-    #     # "dinov2_vits14",
-    # )
-    #
-    # # backbone = DinoBilinear(backbone_original)
-    # backbone = DinoBackbone(backbone_original)
-    # backbone_channels = backbone.blocks[-1].mlp.fc2.out_features,  # type:ignore[reportArgumentType]
-
     # DINO v3
     # _k = "vitb16"
     _k = "vitl16"
@@ -156,16 +139,16 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total params: {total_params:,}, Trainable: {trainable_params:,}")
 
+    # Plot predictions before training
+    # print("\n=== Plotting predictions before training ===")
+    # plot_predictions(model, val_dataset, DEVICE, results_dir / "predictions_before.png")
+
     # Optimizer
     warmup_steps = 32  # =2 epochs
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.0, fused=has_cuda)
     scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1e-7, end_factor=1.0, total_iters=warmup_steps
     )
-
-    # Plot predictions before training
-    # print("\n=== Plotting predictions before training ===")
-    # plot_predictions(model, val_dataset, DEVICE, results_dir / "predictions_before.png")
 
     print("\n=== Training ===")
     start_time = perf_counter()
@@ -217,14 +200,6 @@ def main():
             if epoch in DROP_LR_AT_EPOCHS:
                 for group in optimizer.param_groups:
                     group["lr"] /= LR_DROP_FACTOR
-                    # _lr = group["lr"]
-                    # break
-                # optimizer = torch.optim.AdamW(
-                #     model.parameters(), lr=_lr / LR_DROP_FACTOR, weight_decay=0.0, fused=has_cuda
-                # )
-                # scheduler = torch.optim.lr_scheduler.LinearLR(
-                #     optimizer, start_factor=1e-7, end_factor=1.0, total_iters=warmup_steps
-                # )
 
     except KeyboardInterrupt:
         if epoch == 0:

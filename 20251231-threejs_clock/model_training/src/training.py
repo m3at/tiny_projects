@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+CONSISTENCY_WEIGHT = 0.05
+
 
 def angle_error(pred_sin, pred_cos, true_sin, true_cos):
     """Compute angle error in radians between predicted and true angles."""
@@ -24,6 +26,20 @@ def angle_loss(pred_vec: torch.Tensor, true_vec: torch.Tensor, eps: float = 1e-6
     return torch.atan2(cross.abs(), dot)
 
 
+def clock_consistency_loss(hour_vec: torch.Tensor, minute_vec: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    hour_vec = nn.functional.normalize(hour_vec.to(torch.float32), dim=-1)
+    minute_vec = nn.functional.normalize(minute_vec.to(torch.float32), dim=-1)
+
+    zh = torch.complex(hour_vec[..., 1], hour_vec[..., 0])  # cos + i sin
+    zm = torch.complex(minute_vec[..., 1], minute_vec[..., 0])  # cos + i sin
+
+    zh12 = zh**12
+    zh12 = zh12 / (zh12.abs() + eps)
+
+    cos_delta = (zh12 * torch.conj(zm)).real.clamp(-1.0 + eps, 1.0 - eps)
+    return 1.0 - cos_delta
+
+
 @torch.inference_mode()
 def validate(model, val_loader, device):
     """Validate the model."""
@@ -36,18 +52,17 @@ def validate(model, val_loader, device):
     for images, targets in val_loader:
         images, targets = images.to(device), targets.to(device)
 
-        # Loss
-        # preds = model(images)
-        # loss = nn.functional.mse_loss(preds, targets)
-
-        # Angle loss
         preds = model(images)
         p = preds.view(-1, 2, 2)
         t = targets.view(-1, 2, 2)
+
+        # Angle loss
         hour_ang = angle_loss(p[:, 0], t[:, 0])
         min_ang = angle_loss(p[:, 1], t[:, 1])
-        # min_ang = (min_ang + 1e-6).pow(0.5).mean()
         loss = 0.5 * hour_ang.mean() + 1.0 * min_ang.mean()
+
+        cons = clock_consistency_loss(p[:, 0], p[:, 1]).mean()
+        loss = loss + CONSISTENCY_WEIGHT * cons
 
         total_loss += loss.item()
 
@@ -75,28 +90,20 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, has_cuda):
     for images, targets in train_loader:
         images, targets = images.to(device, non_blocking=True), targets.to(device, non_blocking=True)
 
-        # Forward
         optimizer.zero_grad()
 
-        # with torch.autocast(device_type="cuda", enabled=has_cuda):
-
-        # Simple MSE loss
-        # preds = model(images)
-        # loss = nn.functional.mse_loss(preds, targets)
-
-        # Angle loss
         preds = model(images).view(-1, 2, 2)
         t = targets.view(-1, 2, 2)
 
+        # Angle loss
         hour_ang = angle_loss(preds[:, 0], t[:, 0])
         min_ang = angle_loss(preds[:, 1], t[:, 1])
 
-        # Concave power to amplify tiny angles
-        # min_ang = (min_ang + 1e-6).pow(0.5).mean()
-
         loss = 0.5 * hour_ang.mean() + 1.0 * min_ang.mean()
 
-        # Backward
+        cons = clock_consistency_loss(preds[:, 0], preds[:, 1]).mean()
+        loss = loss + CONSISTENCY_WEIGHT * cons
+
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), 10.0)
         optimizer.step()
