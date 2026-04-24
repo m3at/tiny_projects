@@ -9,7 +9,8 @@
     *{ box-sizing:border-box }
     html,body{ height:100% }
     body{ margin:0; font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink); background:var(--bg) }
-    #toolbar{ position:sticky; top:0; z-index:10; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.5rem; background:#181818; border-bottom:1px solid #333 }
+    #toolbar{ position:sticky; top:0; z-index:10; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.5rem; background:#181818; border-bottom:3px solid #333 }
+    #toolbar.showA{ border-bottom-color:var(--accent) }
     #toolbar .group{ display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .5rem; background:#1f1f1f; border:1px solid #333; border-radius:8px }
     button,input[type="number"],input[type="range"],label,input[type="checkbox"]{ font:inherit }
     button{ padding:.4rem .7rem; border-radius:8px; border:1px solid #444; background:#2a2a2a; color:var(--ink); cursor:pointer }
@@ -90,6 +91,7 @@
     const showingLbl = document.getElementById('showingLbl');
     const opacitySlider = document.getElementById('opacity');
     const opacityLbl = document.getElementById('opacityLbl');
+    const toolbarEl = document.getElementById('toolbar');
 
     // --- State ---
     let imgA = new Image();
@@ -121,6 +123,10 @@
       zoomPct.textContent = Math.round(scale * 100) + '%';
       modeLbl.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
       showingLbl.textContent = showA ? 'A' : 'B';
+      toolbarEl.classList.toggle('showA', showA);
+      const v = parseInt(opacitySlider.value, 10) || 0;
+      const eff = showA ? v : v / 2;
+      mask.style.opacity = (eff/100).toFixed(2);
     }
 
     function applyTransform() {
@@ -327,7 +333,8 @@
     // Opacity control for the whole overlay
     function updateOpacityUI(){
       const v = parseInt(opacitySlider.value, 10) || 0; opacityLbl.textContent = v + '%';
-      mask.style.opacity = (v/100).toFixed(2);
+      const eff = showA ? v : v / 2;
+      mask.style.opacity = (eff/100).toFixed(2);
     }
     opacitySlider.addEventListener('input', updateOpacityUI);
 
