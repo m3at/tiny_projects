@@ -23,6 +23,7 @@ import {
 } from './match.js';
 import { startBuild } from './ui/build.js';
 import { dev, devBuild } from './dev.js';
+import { createPerf } from './perf.js';
 import {
   $,
   setVisible,
@@ -32,6 +33,7 @@ import {
   setWindLabel,
   windName,
   updateBattlePanels,
+  resetBattlePanels,
   setAmmoButtons,
   showOverlay as showOverlayRaw,
   hideOverlay,
@@ -39,10 +41,13 @@ import {
 
 const LOG_PILL_LIFE = 4.5;
 const VERDICT_DELAY = 1.8; // let the last explosion play out before the result screen
+const SHAKE_ON_DETONATION = 3.5; // world units of camera jitter
+const SHAKE_DECAY = 9;
 
 const canvas = $('view');
 const sceneCtl = createScene(canvas);
 const fx = createFx(sceneCtl.scene);
+const perf = createPerf();
 
 let match = createMatch(randomSeed(), dev.fromRound);
 let phase = 'menu';
@@ -52,6 +57,7 @@ const views = [null, null];
 let logPills = [];
 let shownLogCount = 0;
 let endTimer = 0;
+let shake = 0;
 
 function randomSeed() {
   return (Math.random() * 0xffffffff) >>> 0;
@@ -201,6 +207,8 @@ function beginBattle() {
   shownLogCount = 0;
   $('battle-log').innerHTML = '';
   endTimer = 0;
+  shake = 0;
+  resetBattlePanels();
 
   const hullIndex = hullIndexOf(match);
   battle = createBattle({
@@ -317,12 +325,16 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  const t0 = performance.now();
   try {
-    step(dt);
+    update(dt);
   } catch (err) {
     // One bad frame should not freeze the match.
     console.error('frame error', err);
   }
+  const t1 = performance.now();
+  sceneCtl.render();
+  perf.sample(t1 - t0, performance.now() - t1, dt);
   requestAnimationFrame(loop);
 }
 
@@ -333,33 +345,53 @@ function stepBuild(dt) {
   frameBuild(false);
 }
 
+// Camera framing plus a decaying shake offset, so a detonation is felt as well as seen.
+function frameBattle(zoomScale = 1) {
+  const mid = midpoint();
+  let x = mid.x;
+  let z = mid.z;
+  if (shake > 0) {
+    x += (Math.random() - 0.5) * shake;
+    z += (Math.random() - 0.5) * shake;
+  }
+  sceneCtl.frame(x, z, mid.size * zoomScale);
+}
+
 function stepBattle(dt) {
+  if (shake > 0) shake = Math.max(0, shake - dt * SHAKE_DECAY);
+
   if (battle.over) {
     endTimer += dt;
-    const mid = midpoint();
-    sceneCtl.frame(mid.x, mid.z, Math.max(46, mid.size * 0.8));
-    fx.update(dt, battle.projectiles);
+    // Ease into slow motion over the verdict delay: the killing blow gets to land.
+    const slow = Math.max(0.15, 1 - endTimer / VERDICT_DELAY);
+    frameBattle(0.86);
+    fx.update(dt * slow, battle.projectiles);
+    for (const v of views) if (v) v.animate(dt * slow);
     if (endTimer > VERDICT_DELAY) endRound();
     return;
   }
 
   battle.advance(dt * dev.speed);
+  for (const e of battle.effects) {
+    if (e.type === 'detonate') shake = SHAKE_ON_DETONATION;
+  }
   fx.consume(battle.effects);
   battle.effects.length = 0;
   setTimer(BATTLE_CAP - battle.time);
   for (let i = 0; i < 2; i++) views[i].syncFromBattle(battle.ships[i]);
-  updateBattlePanels(battle);
-  const mid = midpoint();
-  sceneCtl.frame(mid.x, mid.z, mid.size);
+  updateBattlePanels(battle, dt);
+  frameBattle();
   while (shownLogCount < battle.log.length) pushLogPill(battle.log[shownLogCount++].text);
   fx.update(dt, battle.projectiles);
 }
 
-function step(dt) {
+function update(dt) {
   if (phase === 'build' && buildCtl) stepBuild(dt);
   else if (phase === 'battle' && battle) stepBattle(dt);
 
-  for (const v of views) if (v) v.animate(dt);
+  if (!(phase === 'battle' && battle && battle.over)) {
+    for (const v of views) if (v) v.animate(dt);
+  }
 
   for (let i = logPills.length - 1; i >= 0; i--) {
     logPills[i].t += dt;
@@ -367,12 +399,12 @@ function step(dt) {
   }
 
   sceneCtl.update(dt);
-  sceneCtl.render();
 }
 
 // Test hook for the CDP harness in tools/.
 globalThis.__game = {
   sceneCtl,
+  perf,
   get match() {
     return match;
   },

@@ -103,6 +103,10 @@ export function designWarnings(design, hullIndex) {
     out.push(`${s.unmanned.length} station(s) unmanned. Add crew quarters.`);
   }
   if (s.masts === 0) out.push('No masts. You will barely move.');
+  const holes = s.cellsTotal - s.cellsUsed;
+  if (holes > s.cellsTotal * 0.3) {
+    out.push(`${holes} open holes. Shot passes through them to your spine.`);
+  }
   return out;
 }
 

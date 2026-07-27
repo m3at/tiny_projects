@@ -3,9 +3,11 @@
 //
 // Keep the two PLAYER entries in step with --p1 and --p2 in styles.css.
 
+// `spine` tints the centre column a shade lighter than the flanks, so the rule that
+// broadsides go on the flanks and vitals down the spine is visible on the deck itself.
 export const PLAYER = [
-  { deck: 0x2b3a46, hull: 0x3d5568, flag: 0x5fa8ff },
-  { deck: 0x453029, hull: 0x60403a, flag: 0xff7a5f },
+  { deck: 0x25333d, spine: 0x334654, hull: 0x3d5568, flag: 0x5fa8ff },
+  { deck: 0x3d2a24, spine: 0x513a30, hull: 0x60403a, flag: 0xff7a5f },
 ];
 
 export const SEA = {
@@ -43,4 +45,5 @@ export const FX = {
   roundShot: 0x22262b,
   grapeShot: 0xc8b48a,
   ghost: 0x445f33, // build-phase hover highlight
+  arc: 0xd8b25c, // firing-arc preview
 };

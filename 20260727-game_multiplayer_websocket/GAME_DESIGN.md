@@ -146,6 +146,24 @@ crew quarters, stay on grape and their guns go quiet. Switching costs a reload.
 
 Player 1 presses A, player 2 presses L.
 
+### Reading the ship
+
+The four mechanics that decide battles were all invisible in the interface at first. Each now
+shows up somewhere:
+
+- Open holes lead the build readout, and a warning appears past 30% of the hull. They are the
+  rule that decides most battles, and a "cells filled" ratio buried that.
+- Hovering a gun draws its firing arc as a band just outside the hull, taking its side from
+  the flank the cell sits on. It is a direction indicator, deliberately not a range one.
+- The spine is tinted a shade lighter than the flanks, so the rule that broadsides go on the
+  flanks and vitals down the spine is visible before it gets broken.
+- Each battle panel shows crew and how many guns still have hands on them, going red when any
+  gun falls silent. That is the read grape shot is played against.
+
+Ownership is carried by the hull, not the cargo: both ships mount the same parts in the same
+colours, so each sits on a flat ellipse in its player colour. A panel flashes when its ship is
+hit, since the structure bar barely moves on a single ball.
+
 ### Chaos rules
 
 Two rules do most of the storytelling, and neither is there for balance.
@@ -194,6 +212,16 @@ Removed after measuring, all of it invisible or inert:
 - A lock-in bonus of up to 3 scrap for building quickly. A rule to learn for a rounding error.
 - A crew tiebreak on timeout, on top of the structure comparison.
 - An `ammoLock` field that was written and decremented but never read.
+
+## Feel
+
+Small things, all cheap:
+
+- The camera closes in as the ships close, so an engagement fills the screen.
+- A magazine detonation shakes the camera.
+- The killing blow eases into slow motion over the verdict delay before the result screen.
+- Wind streaks drift downwind across the sea, which is what makes the wind direction legible
+  without reading the dial.
 
 ## Running it
 
@@ -261,10 +289,22 @@ src/ui/            build-phase panel, HUD chrome
 tools/             headless harnesses and the CDP screenshot driver
 ```
 
-Rendering is three.js with an orthographic top-down camera and placeholder boxes. Each part
-is one coloured box plus a glyph decal, all built in `buildPart()` inside
-`render/shipView.js` — that one function is what a real 3D asset replaces, and the build
-phase, damage shading and battle keep working around it.
+Rendering is three.js with an orthographic top-down camera and placeholder boxes.
+
+Ships batch as one instanced deck plus one instanced layer per part type aboard, so the
+draw-call count follows the variety of parts rather than the number of cells. Per-instance
+colour carries part identity and damage tint together, which lets a single material serve
+every box on every ship. `buildLayer()` in `render/shipView.js` is the seam a real asset
+replaces: one loaded mesh per part type, instanced across the cells carrying it.
+
+Particles are three more instanced meshes. Everything lies flat on the water and blends
+additively, so the flat rotation bakes into the geometry and per-instance opacity rides in
+`instanceColor` -- fading additively is the same as darkening.
+
+That structure, plus dirty-tracking every per-frame DOM write and only resizing the canvas
+when it changed, took the largest hull from 238 draw calls and 639 scene objects to 36 and 45,
+render from 1.7ms to 0.7ms, and the worst frame from 33ms to under 2ms. `src/perf.js` keeps
+rolling frame stats; read them with `__game.perf.snapshot(__game.sceneCtl.renderer)`.
 
 Everything in `sim/` is pure and deterministic: seeded, no renderer dependency, fixed 60Hz
 ticks, inputs applied between ticks. Two clients running the same seed and the same input

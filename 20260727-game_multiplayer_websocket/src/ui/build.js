@@ -85,12 +85,15 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
 
   function renderReadout() {
     const s = designStats(design, hullIndex);
+    const holes = s.cellsTotal - s.cellsUsed;
+    // Open holes lead: shot passes straight through them, which is the rule that decides
+    // most battles, and a ratio of filled cells buried it.
     const rows = [
-      ['Cells filled', `${s.cellsUsed}/${s.cellsTotal}`, s.cellsUsed < s.cellsTotal * 0.7],
+      ['Open holes', `${holes}`, holes > s.cellsTotal * 0.25],
       ['Guns', `${s.gunCount}`, s.gunCount === 0],
-      ['Crew', `${s.crewSupply}/${s.crewNeeded}`, s.crewSupply < s.crewNeeded],
+      ['Crew', `${s.crewSupply} of ${s.crewNeeded}`, s.crewSupply < s.crewNeeded],
       ['Masts', `${s.masts}`, s.masts === 0],
-      ['Magazines', `${s.magazines}`, s.magazines === 0],
+      ['Powder', `${s.magazines}`, s.magazines === 0],
     ];
     if (s.damaged.length) rows.push(['Damaged parts', `${s.damaged.length}`, true]);
     $('readout').innerHTML = rows
@@ -139,7 +142,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     sceneCtl.raycaster.setFromCamera(ndc, sceneCtl.camera);
     const hits = sceneCtl.raycaster.intersectObjects(view.pickTargets, false);
-    return hits.length ? hits[0].object.userData.cellKey : null;
+    return hits.length ? view.cellKeyForInstance(hits[0].instanceId) : null;
   }
 
   function onMove(event) {
@@ -147,7 +150,9 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     const key = pick(event);
     if (key === hoverKey) return;
     hoverKey = key;
-    view.setGhost(key, typeof selected === 'string' && PARTS[selected] ? selected : null);
+    const partId = PARTS[selected] ? selected : null;
+    view.setGhost(key, partId);
+    view.setArcPreview(key, key && !design.parts[key] ? partId : null);
   }
 
   function act(key) {
@@ -181,6 +186,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     renderAllWithHint();
     // Keep the part selected so filling a flank is a row of clicks, not a row of round trips.
     view.setGhost(key, selected);
+    view.setArcPreview(null, null);
   }
 
   function onClick(event) {
@@ -215,6 +221,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     selected = selected === 'remove' ? null : 'remove';
     renderAllWithHint();
     view.setGhost(hoverKey, null);
+    view.setArcPreview(null, null);
   };
 
   // Worst damage first, so a partial purse still buys back the most broken parts.
@@ -238,6 +245,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     canvas.removeEventListener('click', onClick);
     canvas.removeEventListener('contextmenu', onContext);
     view.setGhost(null, null);
+    view.setArcPreview(null, null);
     onLockIn(scrap);
   }
 

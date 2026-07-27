@@ -1,4 +1,7 @@
 // DOM chrome: top bar, wind dial, battle status panels, enemy schematic.
+//
+// Everything here is dirty-tracked. These functions run every frame during a battle, and
+// writing an unchanged textContent still invalidates layout, so each write is guarded.
 
 import { PARTS } from '../data/parts.js';
 import { HULLS } from '../data/hulls.js';
@@ -6,28 +9,51 @@ import { structureFraction } from '../sim/ship.js';
 
 export const $ = (id) => document.getElementById(id);
 
+// Last value written, per element and property.
+const written = new WeakMap();
+
+function once(el, key, value) {
+  let map = written.get(el);
+  if (!map) written.set(el, (map = new Map()));
+  if (map.get(key) === value) return false;
+  map.set(key, value);
+  return true;
+}
+
+function text(el, value) {
+  if (once(el, 'text', value)) el.textContent = value;
+}
+
+function style(el, prop, value) {
+  if (once(el, `style:${prop}`, value)) el.style[prop] = value;
+}
+
+function toggle(el, cls, on) {
+  if (once(el, `class:${cls}`, on)) el.classList.toggle(cls, on);
+}
+
 export function setVisible(el, on) {
   el.classList.toggle('hidden', !on);
 }
 
 export function setRound(roundIndex, hullIndex) {
-  $('round-label').textContent = `Round ${roundIndex + 1}`;
-  $('hull-label').textContent = HULLS[hullIndex].name;
+  text($('round-label'), `Round ${roundIndex + 1}`);
+  text($('hull-label'), HULLS[hullIndex].name);
 }
 
 export function setScore(a, b) {
-  $('score-p1').textContent = a;
-  $('score-p2').textContent = b;
+  text($('score-p1'), String(a));
+  text($('score-p2'), String(b));
 }
 
 export function setTimer(seconds) {
   if (seconds === null) {
-    $('timer').textContent = '';
+    text($('timer'), '');
     return;
   }
   const s = Math.max(0, Math.ceil(seconds));
-  $('timer').textContent = `${s}`;
-  $('timer').classList.toggle('urgent', s <= 8);
+  text($('timer'), String(s));
+  toggle($('timer'), 'urgent', s <= 8);
 }
 
 // Wind blows toward windTo. World -z is up on screen, so angle 0 points up.
@@ -56,12 +82,10 @@ export function drawWindDial(windTo) {
   // Arrowhead at the downwind end.
   const hx = r + dx * len;
   const hy = r + dy * len;
-  const px = -dy;
-  const py = dx;
   ctx.beginPath();
   ctx.moveTo(hx, hy);
-  ctx.lineTo(hx - dx * 8 + px * 5, hy - dy * 8 + py * 5);
-  ctx.lineTo(hx - dx * 8 - px * 5, hy - dy * 8 - py * 5);
+  ctx.lineTo(hx - dx * 8 - dy * 5, hy - dy * 8 + dx * 5);
+  ctx.lineTo(hx - dx * 8 + dy * 5, hy - dy * 8 - dx * 5);
   ctx.closePath();
   ctx.fill();
 }
@@ -77,8 +101,8 @@ const COMPASS = [
   'North-westerly',
 ];
 
-// A sailor names the wind by where it comes from, so report that rather than the vector
-// the simulation actually uses.
+// A sailor names the wind by where it comes from, so report that rather than the vector the
+// simulation actually uses.
 export function windName(windTo) {
   const from = (windTo + Math.PI) % (Math.PI * 2);
   return COMPASS[Math.round((from / (Math.PI * 2)) * 8) % 8];
@@ -86,22 +110,48 @@ export function windName(windTo) {
 
 export function setWindLabel(windTo) {
   drawWindDial(windTo);
-  $('wind-label').textContent = windName(windTo);
+  text($('wind-label'), windName(windTo));
 }
 
-export function updateBattlePanels(battle) {
+// Flash a panel when its ship is hit, so damage registers even when the bar barely moves.
+const lastStructure = [1, 1];
+const hitFlash = [0, 0];
+
+export function resetBattlePanels() {
+  lastStructure[0] = 1;
+  lastStructure[1] = 1;
+  hitFlash[0] = 0;
+  hitFlash[1] = 0;
+}
+
+export function updateBattlePanels(battle, dt = 0) {
   for (let i = 0; i < 2; i++) {
     const ship = battle.ships[i];
     const frac = structureFraction(ship);
-    const bar = $(`hp-p${i + 1}`);
-    bar.style.width = `${Math.max(0, frac * 100).toFixed(1)}%`;
-    bar.style.background = frac > 0.55 ? '#7ec98a' : frac > 0.28 ? '#e0c164' : '#e07a64';
 
-    const manned = ship.guns.filter((g) => g.cell.alive && g.manned).length;
-    const total = ship.guns.filter((g) => g.cell.alive).length;
-    $(`crew-p${i + 1}`).textContent = `crew ${ship.crew}/${ship.crewSupply}`;
-    $(`guns-p${i + 1}`).textContent =
-      ship.magazines === 0 ? 'no powder' : `guns ${manned}/${total}`;
+    if (frac < lastStructure[i] - 0.0005) hitFlash[i] = 0.28;
+    lastStructure[i] = frac;
+    if (hitFlash[i] > 0) hitFlash[i] -= dt;
+    toggle($(`ship-p${i + 1}`), 'hit', hitFlash[i] > 0);
+
+    const bar = $(`hp-p${i + 1}`);
+    style(bar, 'width', `${Math.max(0, frac * 100).toFixed(1)}%`);
+    toggle(bar, 'warn', frac <= 0.55 && frac > 0.28);
+    toggle(bar, 'critical', frac <= 0.28);
+
+    // The read that matters for grape shot: how many guns still have hands on them.
+    const alive = ship.guns.filter((g) => g.cell.alive);
+    const manned = alive.filter((g) => g.manned).length;
+    text($(`crew-p${i + 1}`), `crew ${ship.crew}/${ship.crewSupply}`);
+    text(
+      $(`guns-p${i + 1}`),
+      ship.magazines === 0 ? 'no powder' : `guns ${manned}/${alive.length}`,
+    );
+    toggle(
+      $(`guns-p${i + 1}`),
+      'alert',
+      alive.length > 0 && (ship.magazines === 0 || manned < alive.length),
+    );
   }
 }
 

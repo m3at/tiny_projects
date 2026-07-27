@@ -6,6 +6,9 @@
   --panel: rgba(14, 20, 27, 0.82);
   --edge: rgba(233, 228, 216, 0.14);
   --gold: #d8b25c;
+  --sound: #7ec98a;
+  --mauled: #e0c164;
+  --sinking: #e07a64;
 }
 
 * {
@@ -331,6 +334,7 @@ button.primary:hover {
 .ship-status {
   position: fixed;
   top: 74px;
+  transition: border-color 0.12s, background 0.12s;
   width: 214px;
   padding: 11px 13px;
   background: var(--panel);
@@ -361,8 +365,24 @@ button.primary:hover {
 .bar .fill {
   height: 100%;
   width: 100%;
-  background: #7ec98a;
+  background: var(--sound);
   transition: width 0.18s linear, background 0.3s;
+}
+.bar .fill.warn {
+  background: var(--mauled);
+}
+.bar .fill.critical {
+  background: var(--sinking);
+}
+
+/* Damage registers even when the bar barely moves. */
+.ship-status.hit {
+  border-color: var(--sinking);
+  background: rgba(224, 122, 100, 0.16);
+}
+.ship-status .stats .alert {
+  color: var(--sinking);
+  font-weight: 650;
 }
 .ship-status .stats {
   display: flex;
