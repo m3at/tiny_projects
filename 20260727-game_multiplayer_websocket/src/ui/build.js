@@ -92,7 +92,9 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
       ['Open holes', `${holes}`, holes > s.cellsTotal * 0.25],
       ['Guns', `${s.gunCount}`, s.gunCount === 0],
       ['Crew', `${s.crewSupply} of ${s.crewNeeded}`, s.crewSupply < s.crewNeeded],
-      ['Masts', `${s.masts}`, s.masts === 0],
+      // The mast count the hull can use, not just the count carried: extra masts do nothing, and
+      // that was invisible.
+      ['Masts', `${s.masts} of ${s.mastsWanted}`, s.masts === 0],
       ['Powder', `${s.magazines}`, s.magazines === 0],
     ];
     if (s.damaged.length) rows.push(['Damaged parts', `${s.damaged.length}`, true]);

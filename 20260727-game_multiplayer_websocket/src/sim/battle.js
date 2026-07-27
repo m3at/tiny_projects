@@ -4,9 +4,11 @@
 // same battle.
 
 import { PARTS } from '../data/parts.js';
+import { HULLS } from '../data/hulls.js';
 import { makeRng } from './rng.js';
 import {
   HELM_KEY,
+  gridIndex,
   makeBattleShip,
   refreshSystems,
   severDisconnected,
@@ -20,12 +22,21 @@ import {
   ARENA_RADIUS,
   BASE_SPEED,
   BASE_TURN,
-  MIN_SEPARATION,
+  minSeparation,
+  drawOrbitSense,
+  ORBIT_CLOSE,
+  ORBIT_TOLERANCE,
+  ORBIT_RETREAT,
+  HULL_DAMAGE,
+  overtimeScale,
+  RELOAD_STAGGER,
+  RELOAD_JITTER,
   AMMO_SWITCH_RELOAD,
   START_OFFSET,
   PREFERRED_RANGE_FRACTION,
   GRAPE_EXTRA_SHOTS,
   GRAPE_SPREAD_SCALE,
+  GRAPE_CREW_SCALE,
   MAGAZINE_BLAST_CREW,
   massFactor,
   sailFactor,
@@ -33,6 +44,12 @@ import {
 } from '../config.js';
 
 const TAU = Math.PI * 2;
+
+// Math.hypot is dramatically slower than the arithmetic, and this runs a few thousand times a
+// simulated second.
+function len(x, z) {
+  return Math.sqrt(x * x + z * z);
+}
 
 function wrapAngle(a) {
   a = (a + Math.PI) % TAU;
@@ -81,10 +98,18 @@ export function createBattle({ designs, hullIndex, seed, windTo }) {
     makeBattleShip(designs[0], hullIndex, 0, { x: -START_OFFSET.x, z: START_OFFSET.z }, 0),
     makeBattleShip(designs[1], hullIndex, 1, { x: START_OFFSET.x, z: -START_OFFSET.z }, Math.PI),
   ];
-  for (const ship of ships) ship.profile = fightingProfile(ship);
+  for (const ship of ships) {
+    ship.profile = fightingProfile(ship);
+    // Start the battery out of step, so it rolls down the side instead of clapping.
+    for (const gun of ship.guns) {
+      gun.reloadLeft = rng.range(0, gun.spec.reload * RELOAD_STAGGER);
+    }
+  }
 
   const battle = {
     time: 0,
+    sense: drawOrbitSense(rng),
+    minSeparation: minSeparation(HULLS[hullIndex].length),
     ships,
     projectiles: [],
     effects: [],
@@ -128,7 +153,7 @@ function tick(battle, dt) {
 
   steer(battle, a, b, dt);
   steer(battle, b, a, dt);
-  separate(a, b);
+  separate(a, b, battle.minSeparation);
 
   fireGuns(battle, a, b, dt);
   fireGuns(battle, b, a, dt);
@@ -140,39 +165,46 @@ function tick(battle, dt) {
 function steer(battle, ship, enemy, dt) {
   const dx = enemy.x - ship.x;
   const dz = enemy.z - ship.z;
-  const d = Math.hypot(dx, dz);
+  const d = len(dx, dz);
   const bearing = Math.atan2(dx, -dz);
 
   const R = ship.profile.range;
   const bias = (ship.profile.arcBias * Math.PI) / 180;
-  let alpha;
-  if (d > R * 1.35) {
-    alpha = bias * 0.18;
-  } else if (d > R) {
-    const t = (R * 1.35 - d) / (R * 0.35);
-    alpha = bias * (0.18 + 0.82 * t);
-  } else {
-    // Too close for comfort, so open the range. A broadside ship only has to sheer off a
-    // little to keep its guns bearing; a bow-gun ship has to actually run, and cannot
-    // shoot while it does. That trade is what keeps long guns honest.
-    const t = Math.min(1, (R - d) / (R * 0.45));
-    const flee = bias > 0.8 ? bias + 0.55 : 2.5;
-    alpha = bias + (flee - bias) * t;
-  }
 
-  const orbitSign = ship.index === 0 ? 1 : -1;
-  let desired = bearing + alpha * orbitSign;
+  // One continuous controller, not a ladder of range bands. `hold` is the heading offset
+  // that keeps the guns bearing at the preferred range: a quarter turn off the bearing for
+  // a broadside ship, straight at the enemy for a bow chaser. `err` says whether the range
+  // wants closing or opening, and bleeds the offset toward an oblique approach (err > 0) or
+  // carries it past abeam into a retreat (err < 0). At the preferred range there is no
+  // correction left and the ship simply circles, which is exactly where its flanks want the
+  // enemy.
+  //
+  // Both ships take the same sense of rotation, which is what makes it a circling engagement.
+  // Opposite senses were the old bug: each ship kept the other abeam by sailing a parallel
+  // course, so the pair held its range perfectly and marched off the map together, firing
+  // nothing until the arena hauled them back.
+  const err = Math.max(-1, Math.min(1, (d - R) / (R * ORBIT_TOLERANCE)));
+  const hold = bias * battle.sense;
+  const away = Math.PI * battle.sense;
+  // Closing is oblique while the enemy is nearly in reach, so the guns keep bearing, and turns
+  // into a straight charge as the range opens, because a beam arc is worth nothing at a range
+  // no gun can shoot at. Holding the oblique angle all the way out let a long-ranged ship
+  // dictate the range and leave a carronade ship trailing behind it, unable to fire a shot.
+  const close = ORBIT_CLOSE + (1 - ORBIT_CLOSE) * err;
+  const alpha = err > 0 ? hold * (1 - err * close) : hold + (away - hold) * -err * ORBIT_RETREAT;
+  let desired = bearing + alpha;
 
-  // Keep the fight on stage.
-  const fromCentre = Math.hypot(ship.x, ship.z);
+  // Keep the fight on stage. Blends away from the tactical heading rather than from the
+  // current one, so a ship being turned back still fights while it comes about.
+  const fromCentre = len(ship.x, ship.z);
   if (fromCentre > ARENA_RADIUS * 0.8) {
     const inward = Math.atan2(-ship.x, ship.z);
     const pull = Math.min(1, (fromCentre - ARENA_RADIUS * 0.8) / (ARENA_RADIUS * 0.25));
-    desired = ship.heading + wrapAngle(inward - ship.heading) * pull;
+    desired += wrapAngle(inward - desired) * pull;
   }
 
-  const mass = massFactor(ship.cells.filter((c) => c.alive).length || 1);
-  const sail = sailFactor(ship.masts, ship.cells.length);
+  const mass = massFactor(ship.aliveCells || 1);
+  const sail = sailFactor(ship.masts, ship.sailWanted);
   const turnRate = BASE_TURN * sail * mass;
   const diff = wrapAngle(desired - ship.heading);
   ship.heading = wrapAngle(ship.heading + Math.max(-turnRate * dt, Math.min(turnRate * dt, diff)));
@@ -184,12 +216,12 @@ function steer(battle, ship, enemy, dt) {
   ship.z += -Math.cos(ship.heading) * ship.speed * dt;
 }
 
-function separate(a, b) {
+function separate(a, b, floor) {
   const dx = b.x - a.x;
   const dz = b.z - a.z;
-  const d = Math.hypot(dx, dz) || 0.001;
-  if (d >= MIN_SEPARATION) return;
-  const push = (MIN_SEPARATION - d) / 2;
+  const d = len(dx, dz) || 0.001;
+  if (d >= floor) return;
+  const push = (floor - d) / 2;
   const nx = dx / d;
   const nz = dz / d;
   a.x -= nx * push;
@@ -200,24 +232,27 @@ function separate(a, b) {
 
 function fireGuns(battle, ship, enemy, dt) {
   const canFire = ship.magazines > 0;
+  const cos = Math.cos(ship.heading);
+  const sin = Math.sin(ship.heading);
   for (const gun of ship.guns) {
     if (gun.reloadLeft > 0) gun.reloadLeft -= dt;
     if (!canFire || !gun.cell.alive || !gun.manned || gun.reloadLeft > 0) continue;
 
-    const muzzle = toWorld(ship, gun.cell.lx, gun.cell.lz);
-    const dx = enemy.x - muzzle.x;
-    const dz = enemy.z - muzzle.z;
-    const dist = Math.hypot(dx, dz);
+    const mx = ship.x + gun.cell.lx * cos - gun.cell.lz * sin;
+    const mz = ship.z + gun.cell.lx * sin + gun.cell.lz * cos;
+    const dx = enemy.x - mx;
+    const dz = enemy.z - mz;
+    const dist = len(dx, dz);
     if (dist > gun.spec.range) continue;
 
     const bearing = Math.atan2(dx, -dz);
-    if (Math.abs(wrapAngle(bearing - (ship.heading + gun.arcCentre))) > gun.halfArc) continue;
+    if (!bears(gun, ship.heading, bearing)) continue;
 
     // Lead the target, then scatter.
     const flight = dist / gun.spec.speed;
     const aimX = enemy.x + Math.sin(enemy.heading) * enemy.speed * flight;
     const aimZ = enemy.z - Math.cos(enemy.heading) * enemy.speed * flight;
-    const aimBearing = Math.atan2(aimX - muzzle.x, -(aimZ - muzzle.z));
+    const aimBearing = Math.atan2(aimX - mx, -(aimZ - mz));
 
     const shot = ship.ammo === 'grape' ? gun.spec.grape : gun.spec.round;
     const count = ship.ammo === 'grape' ? gun.spec.shots + GRAPE_EXTRA_SHOTS : gun.spec.shots;
@@ -228,14 +263,14 @@ function fireGuns(battle, ship, enemy, dt) {
       const ang = aimBearing + jitter;
       const speed = gun.spec.speed * battle.rng.range(0.94, 1.06);
       battle.projectiles.push({
-        x: muzzle.x,
-        z: muzzle.z,
+        x: mx,
+        z: mz,
         vx: Math.sin(ang) * speed,
         vz: -Math.cos(ang) * speed,
         owner: ship.index,
         target: enemy.index,
         damage: shot.damage,
-        crew: shot.crew || 0,
+        crew: (shot.crew || 0) * GRAPE_CREW_SCALE,
         pierce: !!gun.spec.pierce,
         kind: ship.ammo,
         ttl: (gun.spec.range / gun.spec.speed) * 1.35,
@@ -243,19 +278,33 @@ function fireGuns(battle, ship, enemy, dt) {
     }
     battle.effects.push({
       type: 'muzzle',
-      x: muzzle.x,
-      z: muzzle.z,
+      x: mx,
+      z: mz,
       heading: aimBearing,
       ship: ship.index,
       big: gun.spec.shots > 1,
     });
-    gun.reloadLeft = gun.spec.reload * battle.rng.range(0.92, 1.08);
+    gun.reloadLeft = gun.spec.reload * battle.rng.range(1 - RELOAD_JITTER, 1 + RELOAD_JITTER);
   }
 }
 
+// A broadside gun deck ran the full width of the ship, so it answers to either beam: two
+// windows at +/-90 with an eighth of a turn blind fore and aft. Which flank the cell sits on
+// still decides where the damage lands, just not where the gun can shoot.
+function bears(gun, heading, bearing) {
+  for (const centre of gun.arcs) {
+    if (Math.abs(wrapAngle(bearing - (heading + centre))) <= gun.halfArc) return true;
+  }
+  return false;
+}
+
+// Compacts in place rather than rebuilding the array, which at a few hundred shot a second was
+// a fresh array every tick.
 function stepProjectiles(battle, dt) {
-  const alive = [];
-  for (const p of battle.projectiles) {
+  const list = battle.projectiles;
+  let keep = 0;
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i];
     p.ttl -= dt;
     p.x += p.vx * dt;
     p.z += p.vz * dt;
@@ -269,18 +318,21 @@ function stepProjectiles(battle, dt) {
       resolveHit(battle, target, hitCell, p);
       continue;
     }
-    alive.push(p);
+    list[keep++] = p;
   }
-  battle.projectiles = alive;
+  list.length = keep;
 }
 
 function cellAt(ship, wx, wz) {
-  const { lx, lz } = toLocal(ship, wx, wz);
-  const dx = Math.round(lx / CELL);
-  const dz = Math.round(lz / CELL);
-  const cell = ship.byKey.get(`${dx},${dz}`);
+  const dx = wx - ship.x;
+  const dz = wz - ship.z;
+  const c = Math.cos(ship.heading);
+  const s = Math.sin(ship.heading);
+  const cx = Math.round((dx * c + dz * s) / CELL);
+  const cz = Math.round((-dx * s + dz * c) / CELL);
+  const cell = ship.grid[gridIndex(cx, cz)];
   // A destroyed cell is a hole: the ball keeps going and can reach the spine.
-  return cell && cell.alive ? cell : null;
+  return cell !== undefined && cell.alive ? cell : null;
 }
 
 function resolveHit(battle, ship, cell, p) {
@@ -301,20 +353,23 @@ function resolveHit(battle, ship, cell, p) {
 
 function damageCell(battle, ship, cell, amount, pierce, chain) {
   if (!cell.alive) return;
-  const part = PARTS[cell.id];
-  const soak = pierce ? Math.floor((part.soak || 0) / 2) : part.soak || 0;
-  cell.hp -= Math.max(1, amount - soak);
+  const soak = pierce ? Math.floor(cell.soak / 2) : cell.soak;
+  // Soak first, then the hull's pace factor. The other order let a big hull's factor drop a
+  // ball below the soak line, which made heavy timbers immune rather than tough.
+  const scale = (HULL_DAMAGE[ship.hullIndex] ?? 1) * overtimeScale(battle.time);
+  cell.hp -= Math.max(1, amount - soak) * scale;
   if (cell.hp > 0) return;
 
   cell.hp = 0;
   cell.alive = false;
+  ship.aliveCells--;
   const pos = toWorld(ship, cell.lx, cell.lz);
   battle.effects.push({ type: 'destroy', x: pos.x, z: pos.z, part: cell.id, ship: ship.index });
 
   if (cell.id === 'mast') {
     logOnce(battle, ship, 'mast', `${shipName(ship)} loses a mast`);
   }
-  if (part.magazine) {
+  if (cell.magazine) {
     detonate(battle, ship, cell, chain || new Set());
   }
   const severed = severDisconnected(ship);
@@ -337,8 +392,8 @@ function detonate(battle, ship, cell, chain) {
   for (let ox = -spec.radius; ox <= spec.radius; ox++) {
     for (let oz = -spec.radius; oz <= spec.radius; oz++) {
       if (ox === 0 && oz === 0) continue;
-      const n = ship.byKey.get(`${cell.dx + ox},${cell.dz + oz}`);
-      if (n && n.alive) damageCell(battle, ship, n, spec.damage, true, chain);
+      const n = ship.grid[gridIndex(cell.dx + ox, cell.dz + oz)];
+      if (n !== undefined && n.alive) damageCell(battle, ship, n, spec.damage, true, chain);
     }
   }
   ship.crewLost += MAGAZINE_BLAST_CREW;
@@ -363,7 +418,7 @@ function canEverFire(ship) {
 
 function checkEnd(battle) {
   const [a, b] = battle.ships;
-  const dead = (s) => !s.byKey.get(HELM_KEY)?.alive || s.cells.every((c) => !c.alive);
+  const dead = (s) => !s.byKey.get(HELM_KEY)?.alive || s.aliveCells === 0;
 
   if (dead(a) || dead(b)) {
     const aDead = dead(a);
@@ -384,7 +439,7 @@ function checkEnd(battle) {
     battle.over = true;
     const fa = structureFraction(a);
     const fb = structureFraction(b);
-    if (Math.abs(fa - fb) < 0.02) {
+    if (Math.abs(fa - fb) < 0.01) {
       battle.winner = null;
       battle.reason = 'Both ships break off, evenly mauled';
     } else {

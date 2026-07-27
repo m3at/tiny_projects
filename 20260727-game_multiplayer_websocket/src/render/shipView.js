@@ -32,6 +32,15 @@ const glyphMatCache = new Map();
 // Colour comes entirely from instanceColor, so one material serves every part box.
 const partMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 });
 
+// Shared by every arc band on every ship: only the geometry differs.
+const arcMaterial = new THREE.MeshBasicMaterial({
+  color: FX.arc,
+  transparent: true,
+  opacity: 0.3,
+  side: THREE.DoubleSide,
+  depthWrite: false,
+});
+
 function boxGeoFor(partId) {
   if (!boxGeoCache.has(partId)) {
     boxGeoCache.set(
@@ -279,14 +288,14 @@ export function createShipView({ design, hullIndex, player, interactive = false 
   // Arcs decide whether a gun ever bears, and nothing else in the UI shows them. This is a
   // direction indicator sitting just outside the hull, deliberately not a range indicator.
   const hullRadius = (hull.width / 2 + 0.6) * CELL;
-  let arc = null;
+  const arcs = [];
 
   function clearArc() {
-    if (!arc) return;
-    group.remove(arc);
-    arc.geometry.dispose();
-    arc.material.dispose();
-    arc = null;
+    for (const mesh of arcs) {
+      group.remove(mesh);
+      mesh.geometry.dispose();
+    }
+    arcs.length = 0;
   }
 
   function setArcPreview(key, partId) {
@@ -296,38 +305,32 @@ export function createShipView({ design, hullIndex, player, interactive = false 
     const cell = cells.get(key);
     if (!cell) return;
 
-    // Broadside guns take their side from the flank they sit on; nothing to show on the spine.
-    let centreDeg = 0;
-    if (gun.arc === 'side') {
-      if (cell.dx === 0) return;
-      centreDeg = cell.dx > 0 ? 90 : -90;
-    } else if (gun.arc === 'all') {
-      centreDeg = 0;
-    }
+    // One band per firing window, matching sim/ship.js: a broadside points out its own flank, a
+    // bow chaser forward, a swivel all round. Nothing to show for a broadside on the spine,
+    // where it cannot go anyway.
+    if (gun.arc === 'side' && cell.dx === 0) return;
+    const centres = gun.arc === 'side' ? [cell.dx > 0 ? 90 : -90] : [0];
     const half = gun.arc === 'all' ? 180 : gun.halfArc;
 
-    // RingGeometry theta runs from +x; once laid flat, +x is starboard and +90deg is the bow,
-    // which is the mirror of the arc convention (0 = bow, +90 = starboard).
-    const startDeg = 90 - centreDeg - half;
-    arc = new THREE.Mesh(
-      new THREE.RingGeometry(
-        hullRadius,
-        hullRadius + CELL * 0.85,
-        48,
-        1,
-        (startDeg * Math.PI) / 180,
-        (2 * half * Math.PI) / 180,
-      ).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({
-        color: FX.arc,
-        transparent: true,
-        opacity: 0.3,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      }),
-    );
-    arc.position.set(0, 0.05, cell.dz * CELL);
-    group.add(arc);
+    for (const centreDeg of centres) {
+      // RingGeometry theta runs from +x; once laid flat, +x is starboard and +90deg is the bow,
+      // which is the mirror of the arc convention (0 = bow, +90 = starboard).
+      const startDeg = 90 - centreDeg - half;
+      const mesh = new THREE.Mesh(
+        new THREE.RingGeometry(
+          hullRadius,
+          hullRadius + CELL * 0.85,
+          48,
+          1,
+          (startDeg * Math.PI) / 180,
+          (2 * half * Math.PI) / 180,
+        ).rotateX(-Math.PI / 2),
+        arcMaterial,
+      );
+      mesh.position.set(0, 0.05, cell.dz * CELL);
+      arcs.push(mesh);
+      group.add(mesh);
+    }
   }
 
   // ---- battle-phase sync ----

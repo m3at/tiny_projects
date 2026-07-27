@@ -21,13 +21,41 @@ const VARIANTS = {
   // The wind's speed penalty, flattened away.
   'no wind': [['config.js', 'export const WIND_MIN = 0.35;', 'export const WIND_MIN = 1;']],
   // Heavy timbers stop soaking, becoming just expensive hull.
-  'no armour soak': [['data/parts.js', 'soak: 3,', 'soak: 0,']],
+  'no armour soak': [['data/parts.js', 'soak: 2,', 'soak: 0,']],
   // Destroyed cells block shot instead of letting it through to the spine.
   'holes block shot': [
-    ['sim/battle.js', 'return cell && cell.alive ? cell : null;', 'return cell || null;'],
+    ['sim/battle.js', 'return cell !== undefined && cell.alive ? cell : null;', 'return cell ?? null;'],
   ],
   // Ships always point their bow at the enemy instead of presenting a flank.
   'no orbiting': [['sim/battle.js', "const bias = spec.arc === 'bow' ? 0 : 90;", 'const bias = 0;']],
+  // Both ships circle the same way. Opposite senses put them on parallel courses, which is
+  // what the game used to do: perfect range-keeping, no shooting, straight off the map.
+  'opposed orbits': [
+    ['sim/battle.js', 'const hold = bias * battle.sense;', 'const hold = bias * (ship.index === 0 ? 1 : -1);'],
+  ],
+  // Broadsides answer to either beam, so which flank a gun sits on stops being a decision.
+  'either-beam broadsides': [
+    [
+      'sim/ship.js',
+      "part.gun.arc === 'side' ? [sideOfCell(cell.dx) === 'port' ? -Math.PI / 2 : Math.PI / 2] : [0];",
+      "part.gun.arc === 'side' ? [-Math.PI / 2, Math.PI / 2] : [0];",
+    ],
+  ],
+  // A ship driven inside its preferred range turns tail instead of holding the circle.
+  'full retreat': [['config.js', 'export const ORBIT_RETREAT = 0;', 'export const ORBIT_RETREAT = 1;']],
+  // Every hull takes damage at the same rate, so the big ones die in five seconds.
+  'flat hull damage': [
+    ['config.js', 'export const HULL_DAMAGE = [1.05, 0.5, 0.36, 0.24, 0.2];', 'export const HULL_DAMAGE = [1, 1, 1, 1, 1];'],
+  ],
+  // The battery fires as one clap instead of rolling down the side.
+  'synchronised battery': [
+    ['config.js', 'export const RELOAD_STAGGER = 0.35;', 'export const RELOAD_STAGGER = 0;'],
+    ['config.js', 'export const RELOAD_JITTER = 0.35;', 'export const RELOAD_JITTER = 0;'],
+  ],
+  // Grape kills a whole man per pellet again.
+  'unscaled grape': [
+    ['config.js', 'export const GRAPE_CREW_SCALE = 0.15;', 'export const GRAPE_CREW_SCALE = 1;'],
+  ],
   // Cut-off sections stay attached.
   'no severing': [
     ['sim/ship.js', 'const helm = ship.byKey.get(HELM_KEY);', 'return [];\n  const helm = ship.byKey.get(HELM_KEY);'],

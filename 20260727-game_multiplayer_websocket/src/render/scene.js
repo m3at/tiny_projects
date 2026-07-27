@@ -47,7 +47,9 @@ export function createScene(canvas) {
     new THREE.MeshBasicMaterial({
       color: SEA.arenaRing,
       transparent: true,
-      opacity: 0.5,
+      // Faint: the fight settles near the middle now, so the ring is a hint about where the
+      // stage ends rather than a boundary anyone touches.
+      opacity: 0.22,
       side: THREE.DoubleSide,
     }),
   );

@@ -1,19 +1,23 @@
 // Drives headless Chrome over CDP to catch console errors and grab screenshots.
 // No dependencies: Node's built-in WebSocket talks to Chrome directly.
 //
-//   node tools/shot.js out.png "steps"
+//   node tools/shot.js out.png "steps" [query]
 //
 // A step is either a number (wait that many ms), JS to evaluate in the page, or
 // '@path/to/file.js' to evaluate that file's contents (no shell escaping to fight).
 // Steps are separated by ';;'. Example:
 //   node tools/shot.js b.png "800 ;; ovBtn() ;; 500 ;; ovBtn() ;; 1200"
+//
+// The third argument is appended to the page URL, for the dev harness in src/dev.js:
+//   node tools/shot.js b.png "6000" "?dev=brawler,crusher&round=5&x=4"
 
 import { writeFileSync, readFileSync } from 'node:fs';
 
 const PORT = 9222;
 const out = process.argv[2] || 'shot.png';
 const steps = (process.argv[3] || '1200').split(';;').map((s) => s.trim()).filter(Boolean);
-const url = process.env.URL || 'http://127.0.0.1:8123/index.html';
+const query = process.argv[4] || '';
+const url = (process.env.URL || 'http://127.0.0.1:8123/index.html') + query;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

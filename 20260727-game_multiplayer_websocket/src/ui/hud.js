@@ -63,11 +63,21 @@ export function drawWindDial(windTo) {
   const r = canvas.width / 2;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  ctx.strokeStyle = 'rgba(233,228,216,0.2)';
+  // A compass rose rather than a bare circle: eight ticks, north doubled, so the arrow can
+  // be read against something.
+  ctx.strokeStyle = 'rgba(233,228,216,0.22)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.arc(r, r, r - 3, 0, Math.PI * 2);
   ctx.stroke();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const inner = r - 3 - (i === 0 ? 7 : i % 2 === 0 ? 4 : 2.5);
+    ctx.beginPath();
+    ctx.moveTo(r + Math.sin(a) * inner, r - Math.cos(a) * inner);
+    ctx.lineTo(r + Math.sin(a) * (r - 3), r - Math.cos(a) * (r - 3));
+    ctx.stroke();
+  }
 
   const dx = Math.sin(windTo);
   const dy = -Math.cos(windTo);
@@ -113,7 +123,12 @@ export function setWindLabel(windTo) {
   text($('wind-label'), windName(windTo));
 }
 
-// Flash a panel when its ship is hit, so damage registers even when the bar barely moves.
+// Flash a panel when its ship takes real damage, so it registers even though the bar barely
+// moves. The threshold matters: a ship of the line is hit several times a second now, and
+// flashing on every graze left the panel permanently lit and meaning nothing. One cell is worth
+// about 3% of a hull, so this fires when something aboard actually breaks.
+const FLASH_THRESHOLD = 0.012;
+const FLASH_TIME = 0.18;
 const lastStructure = [1, 1];
 const hitFlash = [0, 0];
 
@@ -129,7 +144,7 @@ export function updateBattlePanels(battle, dt = 0) {
     const ship = battle.ships[i];
     const frac = structureFraction(ship);
 
-    if (frac < lastStructure[i] - 0.0005) hitFlash[i] = 0.28;
+    if (frac < lastStructure[i] - FLASH_THRESHOLD) hitFlash[i] = FLASH_TIME;
     lastStructure[i] = frac;
     if (hitFlash[i] > 0) hitFlash[i] -= dt;
     toggle($(`ship-p${i + 1}`), 'hit', hitFlash[i] > 0);

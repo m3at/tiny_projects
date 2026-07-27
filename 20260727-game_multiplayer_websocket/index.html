@@ -34,7 +34,7 @@
 
     <!-- Build phase -->
     <section id="build-ui" class="hidden">
-      <aside class="panel left">
+      <aside class="panel left framed">
         <div class="panel-head">
           <h2 id="build-who">Player 1</h2>
           <div class="scrap">
@@ -51,11 +51,11 @@
         <p id="hint" class="hint"></p>
       </aside>
 
-      <aside class="panel right">
+      <aside class="panel right framed">
         <div id="readout"></div>
         <div id="warnings"></div>
         <div id="enemy-intel" class="hidden">
-          <h3>Enemy, last seen</h3>
+          <h3 class="label">Enemy, last seen</h3>
           <canvas id="enemy-canvas" width="180" height="240"></canvas>
         </div>
       </aside>
@@ -67,7 +67,7 @@
 
     <!-- Battle phase -->
     <section id="battle-ui" class="hidden">
-      <div class="ship-status p1" id="ship-p1">
+      <div class="ship-status p1 framed" id="ship-p1">
         <div class="name">Player 1</div>
         <div class="bar"><div id="hp-p1" class="fill"></div></div>
         <div class="stats"><span id="crew-p1"></span><span id="guns-p1"></span></div>
@@ -77,7 +77,7 @@
           <div class="key-hint">key: A</div>
         </div>
       </div>
-      <div class="ship-status p2" id="ship-p2">
+      <div class="ship-status p2 framed" id="ship-p2">
         <div class="name">Player 2</div>
         <div class="bar"><div id="hp-p2" class="fill"></div></div>
         <div class="stats"><span id="crew-p2"></span><span id="guns-p2"></span></div>
@@ -92,7 +92,7 @@
 
     <!-- Full-screen overlays: menu, handoff, results -->
     <div id="overlay" class="overlay">
-      <div class="card">
+      <div class="card framed ticked">
         <h1 id="ov-title">Broadside</h1>
         <p id="ov-body"></p>
         <div id="ov-log" class="ov-log"></div>

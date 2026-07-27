@@ -2,10 +2,17 @@
 // the battle simulation mutates.
 
 import { PARTS } from '../data/parts.js';
-import { HULLS, cellKey } from '../data/hulls.js';
-import { CELL } from '../config.js';
+import { HULLS, cellKey, isBowCell } from '../data/hulls.js';
+import { CELL, mastsWanted } from '../config.js';
 
 export const HELM_KEY = '0,0';
+
+// A flat integer index for a cell offset, for the one lookup that happens per projectile per
+// tick. Building a "dx,dz" string there was the simulation's single hottest allocation.
+const GRID_SPAN = 64;
+export function gridIndex(dx, dz) {
+  return (dx + 16) * GRID_SPAN + (dz + 32);
+}
 
 export function createDesign() {
   return {
@@ -43,6 +50,9 @@ export function placementError(design, hullIndex, dx, dz, partId) {
   const part = PARTS[partId];
   if (part.gun && part.gun.arc === 'side' && sideOfCell(dx) === null) {
     return 'Broadside guns need a flank cell, not the spine';
+  }
+  if (part.gun && part.gun.arc === 'bow' && !isBowCell(hullIndex, dz)) {
+    return 'A bow chaser has to be worked from the bow';
   }
   return null;
 }
@@ -87,6 +97,7 @@ export function designStats(design, hullIndex) {
     crewNeeded,
     magazines,
     masts,
+    mastsWanted: mastsWanted(hull.cells.length),
     gunCount: guns.length,
     unmanned,
     damaged,
@@ -103,6 +114,9 @@ export function designWarnings(design, hullIndex) {
     out.push(`${s.unmanned.length} station(s) unmanned. Add crew quarters.`);
   }
   if (s.masts === 0) out.push('No masts. You will barely move.');
+  else if (s.masts > s.mastsWanted) {
+    out.push(`${s.masts - s.mastsWanted} mast(s) more than this hull can use.`);
+  }
   const holes = s.cellsTotal - s.cellsUsed;
   if (holes > s.cellsTotal * 0.3) {
     out.push(`${holes} open holes. Shot passes through them to your spine.`);
@@ -117,6 +131,7 @@ export function designWarnings(design, hullIndex) {
 export function makeBattleShip(design, hullIndex, index, startPos, startHeading) {
   const cells = [];
   const byKey = new Map();
+  const grid = [];
   for (const [key, slot] of Object.entries(design.parts)) {
     const [dx, dz] = key.split(',').map(Number);
     const part = PARTS[slot.id];
@@ -130,24 +145,37 @@ export function makeBattleShip(design, hullIndex, index, startPos, startHeading)
       alive: true,
       lx: dx * CELL,
       lz: dz * CELL,
+      soak: part.soak || 0,
+      magazine: !!part.magazine,
+      crewCost: part.crewCost || 0,
+      crewSupply: part.crewSupply || 0,
     };
     cells.push(cell);
     byKey.set(key, cell);
+    grid[gridIndex(dx, dz)] = cell;
   }
 
   const guns = [];
   for (const cell of cells) {
     const part = PARTS[cell.id];
     if (!part.gun) continue;
-    const side = part.gun.arc === 'side' ? sideOfCell(cell.dx) : null;
-    let arcCentre = 0;
-    if (part.gun.arc === 'side') arcCentre = side === 'port' ? -Math.PI / 2 : Math.PI / 2;
+    // Where the gun can shoot, in ship-local radians. A broadside gun points out the flank it
+    // sits on and nowhere else; a bow chaser only forward; a swivel everywhere, which one
+    // 180-degree window covers.
+    //
+    // This is what makes the layout a decision. The engagement settles on one beam for the whole
+    // battle and which one is drawn at random (config.drawOrbitSense), so massing the battery on
+    // one flank doubles the broadside that bears or wastes it, while splitting it fights half a
+    // battery every time and is never caught out. Letting broadsides answer to either beam
+    // removes the exploit too, but it removes the decision with it.
+    const arcs =
+      part.gun.arc === 'side' ? [sideOfCell(cell.dx) === 'port' ? -Math.PI / 2 : Math.PI / 2] : [0];
     guns.push({
       cell,
       spec: part.gun,
-      arcCentre,
+      arcs,
       halfArc: (part.gun.halfArc * Math.PI) / 180,
-      reloadLeft: part.gun.reload * 0.35, // stagger the opening volleys a little
+      reloadLeft: 0, // createBattle staggers the battery with the seeded rng
       manned: false,
     });
   }
@@ -159,7 +187,10 @@ export function makeBattleShip(design, hullIndex, index, startPos, startHeading)
     hullIndex,
     cells,
     byKey,
+    grid,
     guns,
+    // Maintained rather than recounted: steer() and checkEnd() both want it every tick.
+    aliveCells: cells.length,
     x: startPos.x,
     z: startPos.z,
     heading: startHeading,
@@ -167,6 +198,8 @@ export function makeBattleShip(design, hullIndex, index, startPos, startHeading)
     ammo: 'round',
     crewLost: 0,
     initialStructure: cells.reduce((a, c) => a + c.maxHp, 0),
+    // sailFactor's target mast count never changes during a battle.
+    sailWanted: mastsWanted(cells.length),
   };
   refreshSystems(ship);
   return ship;
@@ -178,13 +211,14 @@ export function refreshSystems(ship) {
   let magazines = 0;
   for (const cell of ship.cells) {
     if (!cell.alive) continue;
-    const part = PARTS[cell.id];
-    if (part.crewSupply) crewSupply += part.crewSupply;
+    crewSupply += cell.crewSupply;
     if (cell.id === 'mast') masts++;
-    if (part.magazine) magazines++;
+    if (cell.magazine) magazines++;
   }
   ship.crewSupply = crewSupply;
-  ship.crew = Math.max(0, crewSupply - ship.crewLost);
+  // Grape kills fractions of a man per pellet, so floor it: the number that mans the guns is
+  // the number the panel shows.
+  ship.crew = Math.max(0, Math.floor(crewSupply - ship.crewLost));
   ship.masts = masts;
   ship.magazines = magazines;
 
@@ -193,7 +227,7 @@ export function refreshSystems(ship) {
   // see or reason about.
   let pool = ship.crew;
   for (const gun of ship.guns) {
-    const need = PARTS[gun.cell.id].crewCost || 0;
+    const need = gun.cell.crewCost;
     gun.manned = gun.cell.alive && pool >= need;
     if (gun.manned) pool -= need;
   }
@@ -233,6 +267,7 @@ export function severDisconnected(ship) {
     if (cell.alive && !seen.has(cell.key)) {
       cell.alive = false;
       cell.hp = 0;
+      ship.aliveCells--;
       severed.push(cell);
     }
   }

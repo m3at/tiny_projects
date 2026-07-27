@@ -1,14 +1,47 @@
+/* Chrome for Broadside.
+ *
+ * Two rules hold the look together:
+ *
+ *   Nothing is rounded. Panels are square and framed with a double rule -- an outer
+ *   hairline, a dark gutter, an inner hairline -- the way a chart or a ship's plan is
+ *   ruled. Corners get gold ticks instead of a radius. Accent colour arrives as a rule
+ *   along one edge, never as a soft-cornered pill.
+ *
+ *   Type comes from three families and six sizes, no others. Superclarendon (a slab
+ *   serif, the lettering of a ship's nameboard) carries every heading, label and number;
+ *   Seravek carries running text; a monospace carries part glyphs only, because those are
+ *   the same characters the deck draws. Sizes are the --fs-* steps below; do not write a
+ *   literal px font-size anywhere in this file.
+ */
+
 :root {
   --p1: #5fa8ff;
   --p2: #ff7a5f;
   --ink: #e9e4d8;
   --dim: #9a917f;
-  --panel: rgba(14, 20, 27, 0.82);
-  --edge: rgba(233, 228, 216, 0.14);
+  --panel: rgba(12, 18, 25, 0.86);
   --gold: #d8b25c;
   --sound: #7ec98a;
   --mauled: #e0c164;
   --sinking: #e07a64;
+
+  /* Rules. The bright line is the frame, the soft line is the inner rule, the gutter is
+     the dark band between them. */
+  --rule: rgba(233, 228, 216, 0.2);
+  --rule-soft: rgba(233, 228, 216, 0.08);
+  --gutter: rgba(5, 9, 14, 0.72);
+  --edge: var(--rule);
+
+  --font-display: 'Superclarendon', 'Rockwell', 'Bookman Old Style', Georgia, serif;
+  --font-ui: 'Seravek', 'PT Sans', 'Avenir Next', ui-sans-serif, system-ui, sans-serif;
+  --font-glyph: 'Menlo', ui-monospace, monospace;
+
+  --fs-1: 10px; /* corner labels, key hints */
+  --fs-2: 12px; /* running text, stats, hints */
+  --fs-3: 14px; /* controls, part names */
+  --fs-4: 17px; /* panel headings */
+  --fs-5: 23px; /* score, purse */
+  --fs-6: 34px; /* timer, overlay title */
 }
 
 * {
@@ -22,7 +55,7 @@ body {
   overflow: hidden;
   background: #0a1017;
   color: var(--ink);
-  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font: var(--fs-2) / 1.45 var(--font-ui);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -44,36 +77,81 @@ body {
   color: var(--dim);
 }
 
+/* Section labels: small, letterspaced, uppercase slab. Used for anything that names a
+   region of the interface rather than reporting a value. */
+.label {
+  font: 600 var(--fs-1) / 1 var(--font-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* ---------- the frame ---------- *
+ * Outer hairline from the border, then a dark gutter and an inner hairline from an inset
+ * shadow. Inset shadows paint on the border box, so this survives a scrolling panel where
+ * a pseudo-element would slide away. Any element wearing .framed needs padding above 5px.
+ */
+
+.framed {
+  border: 1px solid var(--rule);
+  box-shadow: inset 0 0 0 3px var(--gutter), inset 0 0 0 4px var(--rule-soft);
+}
+
+/* Gold brackets at the four corners, in place of a radius. Eight gradient slivers in one
+   pseudo-element: two per corner, pinned to the corner by background-position. */
+.ticked {
+  position: relative;
+}
+.ticked::before {
+  --tick: linear-gradient(var(--gold), var(--gold));
+  content: '';
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  background-image: var(--tick), var(--tick), var(--tick), var(--tick), var(--tick),
+    var(--tick), var(--tick), var(--tick);
+  background-position: 0 0, 0 0, 100% 0, 100% 0, 0 100%, 0 100%, 100% 100%, 100% 100%;
+  background-size: 2px 12px, 12px 2px, 2px 12px, 12px 2px, 2px 12px, 12px 2px, 2px 12px,
+    12px 2px;
+  background-repeat: no-repeat;
+}
+
+/* ---------- controls ---------- */
+
 button {
-  font: inherit;
+  font: 500 var(--fs-3) / 1.2 var(--font-display);
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--edge);
-  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--rule);
   padding: 7px 12px;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 button:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(233, 228, 216, 0.3);
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(233, 228, 216, 0.36);
 }
 button:active {
-  transform: translateY(1px);
+  background: rgba(255, 255, 255, 0.18);
 }
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.38;
   cursor: not-allowed;
 }
 button.primary {
   background: var(--gold);
   border-color: var(--gold);
   color: #17120a;
-  font-weight: 650;
-  padding: 10px 26px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 11px 30px;
+  /* A bright inner rule, so the one button that matters looks struck rather than filled. */
+  box-shadow: inset 0 0 0 1px rgba(23, 18, 10, 0.35), inset 0 0 0 2px rgba(255, 240, 205, 0.45);
 }
 button.primary:hover {
-  background: #e8c470;
+  background: #ecc978;
+  border-color: #ecc978;
 }
 
 /* ---------- top bar ---------- */
@@ -83,12 +161,12 @@ button.primary:hover {
   top: 0;
   left: 0;
   right: 0;
-  height: 62px;
+  height: 64px;
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 26px;
   padding: 0 18px;
-  background: linear-gradient(rgba(8, 12, 18, 0.9), rgba(8, 12, 18, 0));
+  background: linear-gradient(rgba(8, 12, 18, 0.92), rgba(8, 12, 18, 0));
   z-index: 5;
   pointer-events: none;
 }
@@ -96,75 +174,86 @@ button.primary:hover {
 .score {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 18px;
+  gap: 9px;
+  font-family: var(--font-display);
 }
 .score strong {
   font-variant-numeric: tabular-nums;
-  font-size: 22px;
+  font-size: var(--fs-5);
+  font-weight: 700;
+  line-height: 1;
 }
 .score .dash {
   color: var(--dim);
+  font-size: var(--fs-3);
 }
+
+/* Player marks: a square swatch of the player's colour and their name, rather than a
+   tinted pill. The swatch is the same colour the hull is painted. */
 .tag {
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font: 600 var(--fs-1) / 1 var(--font-display);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 4px;
+  padding: 4px 0 4px 8px;
 }
 .tag.p1 {
-  background: rgba(95, 168, 255, 0.18);
+  border-left: 3px solid var(--p1);
   color: var(--p1);
 }
 .tag.p2 {
-  background: rgba(255, 122, 95, 0.18);
+  border-right: 3px solid var(--p2);
+  padding: 4px 8px 4px 0;
   color: var(--p2);
 }
 
 .round-info {
-  font-size: 15px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: var(--fs-3);
+  line-height: 1.3;
+  padding-left: 22px;
+  border-left: 1px solid var(--rule);
 }
 .round-info .muted {
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--fs-1);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .wind {
   display: flex;
   align-items: center;
-  gap: 9px;
-  font-size: 12px;
+  gap: 10px;
+  font: 500 var(--fs-2) / 1 var(--font-display);
+  padding-left: 22px;
+  border-left: 1px solid var(--rule);
 }
 #wind-dial {
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
 }
 
 .timer {
   margin-left: auto;
-  font-size: 30px;
+  font: 400 var(--fs-6) / 1 var(--font-display);
   font-variant-numeric: tabular-nums;
-  font-weight: 300;
   min-width: 62px;
   text-align: right;
 }
 .timer.urgent {
-  color: #ff8d6b;
+  color: var(--sinking);
 }
 
-/* ---------- panels ---------- */
+/* ---------- build panels ---------- */
 
+/* Panels hug their contents and only scroll if they outgrow the viewport. Stretching them
+   to a fixed bottom left a tall empty box under the readout. */
 .panel {
   position: fixed;
-  top: 70px;
-  bottom: 74px;
-  width: 268px;
-  padding: 14px;
+  top: 72px;
+  max-height: calc(100vh - 156px);
+  width: 272px;
+  padding: 16px;
   background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 10px;
   backdrop-filter: blur(9px);
   overflow-y: auto;
   z-index: 4;
@@ -174,7 +263,7 @@ button.primary:hover {
 }
 .panel.right {
   right: 14px;
-  width: 214px;
+  width: 218px;
 }
 
 .panel-head {
@@ -182,148 +271,160 @@ button.primary:hover {
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
 }
 .panel-head h2 {
   margin: 0;
-  font-size: 16px;
+  font: 600 var(--fs-4) / 1 var(--font-display);
 }
 .scrap {
-  font-size: 20px;
+  font-family: var(--font-display);
+  font-size: var(--fs-5);
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: var(--gold);
 }
 .scrap .muted {
-  font-size: 11px;
+  font-size: var(--fs-1);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .offer {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .card-part {
   display: grid;
   grid-template-columns: 26px 1fr auto;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   padding: 7px 9px;
-  border: 1px solid var(--edge);
-  border-radius: 7px;
+  border: 1px solid var(--rule-soft);
+  border-left: 2px solid var(--rule);
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.025);
   transition: background 0.12s, border-color 0.12s;
 }
 .card-part:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.08);
 }
+/* The selected card carries the gold rule down its left edge, the same mark the tools use. */
 .card-part.selected {
-  border-color: var(--gold);
-  background: rgba(216, 178, 92, 0.16);
+  border-left-color: var(--gold);
+  background: rgba(216, 178, 92, 0.15);
 }
 .card-part.unaffordable {
-  opacity: 0.42;
+  opacity: 0.4;
 }
 .card-part .swatch {
   width: 24px;
   height: 24px;
-  border-radius: 5px;
   display: grid;
   place-items: center;
-  font-weight: 700;
-  font-size: 13px;
+  font: 700 var(--fs-3) / 1 var(--font-glyph);
   color: #0d1219;
 }
 .card-part .pname {
-  font-size: 12.5px;
-  font-weight: 600;
+  font: 500 var(--fs-3) / 1.2 var(--font-display);
 }
 .card-part .pblurb {
-  font-size: 10.5px;
+  font-size: var(--fs-1);
   color: var(--dim);
-  line-height: 1.3;
+  line-height: 1.35;
+  margin-top: 2px;
 }
 .card-part .pcost {
+  font-family: var(--font-display);
+  font-size: var(--fs-3);
   font-variant-numeric: tabular-nums;
   color: var(--gold);
-  font-size: 14px;
 }
 
 .tools {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 11px;
+  gap: 4px;
+  margin-top: 12px;
 }
 .tools .tool {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--fs-2);
   padding: 6px 4px;
 }
 .tools .tool.selected {
   border-color: var(--gold);
-  background: rgba(216, 178, 92, 0.18);
+  color: var(--gold);
+  background: rgba(216, 178, 92, 0.16);
 }
 
 .hint {
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   color: var(--dim);
-  margin: 11px 0 0;
-  min-height: 32px;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule-soft);
+  min-height: 34px;
 }
 
 #readout {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font-size: 12px;
+  gap: 2px;
+  font-size: var(--fs-2);
 }
 .stat-row {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 0;
 }
 .stat-row .v {
+  font-family: var(--font-display);
   font-variant-numeric: tabular-nums;
+  font-size: var(--fs-3);
+  line-height: 1;
 }
 .stat-row.bad .v {
-  color: #ff8d6b;
+  color: var(--sinking);
 }
 
 #warnings {
-  margin-top: 12px;
+  margin-top: 14px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 .warn {
-  font-size: 11px;
+  font-size: var(--fs-1);
+  line-height: 1.4;
   padding: 6px 8px;
-  border-radius: 5px;
-  background: rgba(255, 122, 95, 0.14);
-  border-left: 2px solid #ff7a5f;
+  background: rgba(224, 122, 100, 0.12);
+  border-left: 2px solid var(--sinking);
   color: #ffbba8;
 }
 
 #enemy-intel {
-  margin-top: 16px;
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
 }
 #enemy-intel h3 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--dim);
-  margin: 0 0 7px;
+  margin: 0 0 8px;
 }
 #enemy-canvas {
   width: 100%;
   height: auto;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--rule-soft);
 }
 
 .build-footer {
   position: fixed;
-  bottom: 16px;
+  bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 4;
@@ -333,33 +434,36 @@ button.primary:hover {
 
 .ship-status {
   position: fixed;
-  top: 74px;
-  transition: border-color 0.12s, background 0.12s;
-  width: 214px;
-  padding: 11px 13px;
+  top: 76px;
+  width: 218px;
+  padding: 12px 14px;
   background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 10px;
   backdrop-filter: blur(9px);
+  transition: background 0.12s, box-shadow 0.12s;
   z-index: 4;
 }
+/* The player's colour arrives as a thick rule on the outboard edge, pointing at their
+   half of the screen. */
 .ship-status.p1 {
   left: 14px;
-  border-top: 2px solid var(--p1);
+  border-left: 3px solid var(--p1);
 }
 .ship-status.p2 {
   right: 14px;
-  border-top: 2px solid var(--p2);
+  border-right: 3px solid var(--p2);
 }
 .ship-status .name {
-  font-weight: 650;
-  font-size: 13px;
-  margin-bottom: 7px;
+  font: 600 var(--fs-1) / 1 var(--font-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
 }
+
 .bar {
-  height: 7px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.42);
+  position: relative;
+  height: 9px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--rule-soft);
   overflow: hidden;
 }
 .bar .fill {
@@ -374,33 +478,48 @@ button.primary:hover {
 .bar .fill.critical {
   background: var(--sinking);
 }
-
-/* Damage registers even when the bar barely moves. */
-.ship-status.hit {
-  border-color: var(--sinking);
-  background: rgba(224, 122, 100, 0.16);
+/* Quarter ticks over the fill, so the bar can be read as a quantity and not just a
+   colour. */
+.bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 calc(25% - 1px),
+    rgba(5, 9, 14, 0.65) calc(25% - 1px) 25%
+  );
 }
-.ship-status .stats .alert {
-  color: var(--sinking);
-  font-weight: 650;
+
+/* Damage registers even when the bar barely moves. The frame's inner rule turns red rather
+   than a second outline being drawn over it, so the panel keeps its shape. */
+.ship-status.hit {
+  background: rgba(224, 122, 100, 0.18);
+  box-shadow: inset 0 0 0 3px var(--gutter), inset 0 0 0 4px var(--sinking);
 }
 .ship-status .stats {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
-  color: var(--dim);
-  margin-top: 6px;
+  font: 500 var(--fs-2) / 1 var(--font-display);
   font-variant-numeric: tabular-nums;
+  color: var(--dim);
+  margin-top: 7px;
 }
+.ship-status .stats .alert {
+  color: var(--sinking);
+  font-weight: 700;
+}
+
 .ammo {
-  margin-top: 10px;
+  margin-top: 11px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 3px;
 }
 .ammo-btn {
   flex: 1;
-  font-size: 11px;
+  font-size: var(--fs-2);
   padding: 6px 3px;
   white-space: nowrap;
 }
@@ -408,18 +527,20 @@ button.primary:hover {
   background: var(--gold);
   border-color: var(--gold);
   color: #17120a;
-  font-weight: 650;
+  font-weight: 700;
 }
 .key-hint {
   width: 100%;
   text-align: center;
-  font-size: 10px;
+  font: 500 var(--fs-1) / 1.6 var(--font-display);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--dim);
 }
 
 .battle-log {
   position: fixed;
-  bottom: 16px;
+  bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
   width: min(560px, 70vw);
@@ -431,11 +552,11 @@ button.primary:hover {
   pointer-events: none;
 }
 .battle-log div {
-  font-size: 12.5px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  background: rgba(8, 12, 18, 0.8);
-  animation: pop 0.25s ease-out;
+  font: 500 var(--fs-2) / 1.3 var(--font-display);
+  padding: 5px 12px;
+  background: rgba(8, 12, 18, 0.86);
+  border-left: 2px solid var(--gold);
+  animation: pop 0.22s ease-out;
 }
 @keyframes pop {
   from {
@@ -451,7 +572,7 @@ button.primary:hover {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(6, 9, 14, 0.74);
+  background: rgba(6, 9, 14, 0.76);
   backdrop-filter: blur(5px);
   z-index: 10;
 }
@@ -460,28 +581,29 @@ button.primary:hover {
 }
 .overlay .card {
   width: min(520px, 88vw);
-  padding: 30px 34px;
+  padding: 34px 38px;
   background: var(--panel);
-  border: 1px solid var(--edge);
-  border-radius: 14px;
   text-align: center;
 }
 .overlay h1 {
-  margin: 0 0 10px;
-  font-size: 30px;
-  font-weight: 300;
-  letter-spacing: 0.04em;
+  margin: 0 0 12px;
+  font: 400 var(--fs-6) / 1.1 var(--font-display);
+  letter-spacing: 0.05em;
 }
 .overlay p {
   color: var(--dim);
-  margin: 0 0 20px;
+  font-size: var(--fs-3);
+  margin: 0 0 22px;
   white-space: pre-line;
 }
 .ov-log {
   text-align: left;
-  font-size: 12px;
+  font-size: var(--fs-2);
   color: var(--dim);
-  margin: -8px 0 20px;
+  margin: -10px 0 22px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -491,5 +613,6 @@ button.primary:hover {
 }
 .ov-log b {
   color: var(--ink);
+  font-family: var(--font-display);
   font-weight: 600;
 }
