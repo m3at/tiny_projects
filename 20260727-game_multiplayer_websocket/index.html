@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Broadside</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      { "imports": { "three": "./vendor/three.module.js" } }
+    </script>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+
+    <!-- Top bar: always visible once a match is running -->
+    <header id="topbar" class="hidden">
+      <div class="score">
+        <span class="tag p1">Player 1</span>
+        <strong id="score-p1">0</strong>
+        <span class="dash">-</span>
+        <strong id="score-p2">0</strong>
+        <span class="tag p2">Player 2</span>
+      </div>
+      <div class="round-info">
+        <div id="round-label">Round 1</div>
+        <div id="hull-label" class="muted">Sloop</div>
+      </div>
+      <div class="wind">
+        <canvas id="wind-dial" width="52" height="52"></canvas>
+        <div id="wind-label">Wind</div>
+      </div>
+      <div id="timer" class="timer"></div>
+    </header>
+
+    <!-- Build phase -->
+    <section id="build-ui" class="hidden">
+      <aside class="panel left">
+        <div class="panel-head">
+          <h2 id="build-who">Player 1</h2>
+          <div class="scrap">
+            <span id="scrap-value">0</span>
+            <span class="muted">scrap</span>
+          </div>
+        </div>
+        <div id="offer" class="offer"></div>
+        <div class="tools">
+          <button id="btn-reroll" class="tool">Reroll <span class="muted">2</span></button>
+          <button id="btn-refit" class="tool">Refit</button>
+          <button id="btn-scrap" class="tool" data-tool="remove">Remove</button>
+        </div>
+        <p id="hint" class="hint"></p>
+      </aside>
+
+      <aside class="panel right">
+        <div id="readout"></div>
+        <div id="warnings"></div>
+        <div id="enemy-intel" class="hidden">
+          <h3>Enemy, last seen</h3>
+          <canvas id="enemy-canvas" width="180" height="240"></canvas>
+        </div>
+      </aside>
+
+      <div class="build-footer">
+        <button id="btn-lock" class="primary">Lock in</button>
+      </div>
+    </section>
+
+    <!-- Battle phase -->
+    <section id="battle-ui" class="hidden">
+      <div class="ship-status p1">
+        <div class="name">Player 1</div>
+        <div class="bar"><div id="hp-p1" class="fill"></div></div>
+        <div class="stats"><span id="crew-p1"></span><span id="guns-p1"></span></div>
+        <div class="ammo">
+          <button class="ammo-btn active" data-player="0" data-ammo="round">Round shot</button>
+          <button class="ammo-btn" data-player="0" data-ammo="grape">Grape</button>
+          <div class="key-hint">key: A</div>
+        </div>
+      </div>
+      <div class="ship-status p2">
+        <div class="name">Player 2</div>
+        <div class="bar"><div id="hp-p2" class="fill"></div></div>
+        <div class="stats"><span id="crew-p2"></span><span id="guns-p2"></span></div>
+        <div class="ammo">
+          <button class="ammo-btn active" data-player="1" data-ammo="round">Round shot</button>
+          <button class="ammo-btn" data-player="1" data-ammo="grape">Grape</button>
+          <div class="key-hint">key: L</div>
+        </div>
+      </div>
+      <div id="battle-log" class="battle-log"></div>
+    </section>
+
+    <!-- Full-screen overlays: menu, handoff, results -->
+    <div id="overlay" class="overlay">
+      <div class="card">
+        <h1 id="ov-title">Broadside</h1>
+        <p id="ov-body"></p>
+        <div id="ov-log" class="ov-log"></div>
+        <button id="ov-btn" class="primary">Start</button>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

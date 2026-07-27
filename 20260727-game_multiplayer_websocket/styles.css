@@ -1,0 +1,475 @@
+:root {
+  --p1: #5fa8ff;
+  --p2: #ff7a5f;
+  --ink: #e9e4d8;
+  --dim: #9a917f;
+  --panel: rgba(14, 20, 27, 0.82);
+  --edge: rgba(233, 228, 216, 0.14);
+  --gold: #d8b25c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0a1017;
+  color: var(--ink);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A canvas is a replaced element: inset alone leaves it at its intrinsic 300x150, so the
+   width and height have to be stated. */
+#view {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.muted {
+  color: var(--dim);
+}
+
+button {
+  font: inherit;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.06s;
+}
+button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(233, 228, 216, 0.3);
+}
+button:active {
+  transform: translateY(1px);
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+button.primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #17120a;
+  font-weight: 650;
+  padding: 10px 26px;
+}
+button.primary:hover {
+  background: #e8c470;
+}
+
+/* ---------- top bar ---------- */
+
+#topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 0 18px;
+  background: linear-gradient(rgba(8, 12, 18, 0.9), rgba(8, 12, 18, 0));
+  z-index: 5;
+  pointer-events: none;
+}
+
+.score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+.score strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+}
+.score .dash {
+  color: var(--dim);
+}
+.tag {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.tag.p1 {
+  background: rgba(95, 168, 255, 0.18);
+  color: var(--p1);
+}
+.tag.p2 {
+  background: rgba(255, 122, 95, 0.18);
+  color: var(--p2);
+}
+
+.round-info {
+  font-size: 15px;
+  font-weight: 600;
+}
+.round-info .muted {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.wind {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+}
+#wind-dial {
+  width: 52px;
+  height: 52px;
+}
+
+.timer {
+  margin-left: auto;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 300;
+  min-width: 62px;
+  text-align: right;
+}
+.timer.urgent {
+  color: #ff8d6b;
+}
+
+/* ---------- panels ---------- */
+
+.panel {
+  position: fixed;
+  top: 70px;
+  bottom: 74px;
+  width: 268px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  backdrop-filter: blur(9px);
+  overflow-y: auto;
+  z-index: 4;
+}
+.panel.left {
+  left: 14px;
+}
+.panel.right {
+  right: 14px;
+  width: 214px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.panel-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.scrap {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+}
+.scrap .muted {
+  font-size: 11px;
+}
+
+.offer {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.card-part {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.12s, border-color 0.12s;
+}
+.card-part:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+.card-part.selected {
+  border-color: var(--gold);
+  background: rgba(216, 178, 92, 0.16);
+}
+.card-part.unaffordable {
+  opacity: 0.42;
+}
+.card-part .swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: #0d1219;
+}
+.card-part .pname {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.card-part .pblurb {
+  font-size: 10.5px;
+  color: var(--dim);
+  line-height: 1.3;
+}
+.card-part .pcost {
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+  font-size: 14px;
+}
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 11px;
+}
+.tools .tool {
+  flex: 1;
+  font-size: 12px;
+  padding: 6px 4px;
+}
+.tools .tool.selected {
+  border-color: var(--gold);
+  background: rgba(216, 178, 92, 0.18);
+}
+
+.hint {
+  font-size: 11.5px;
+  color: var(--dim);
+  margin: 11px 0 0;
+  min-height: 32px;
+}
+
+#readout {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+}
+.stat-row .v {
+  font-variant-numeric: tabular-nums;
+}
+.stat-row.bad .v {
+  color: #ff8d6b;
+}
+
+#warnings {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.warn {
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(255, 122, 95, 0.14);
+  border-left: 2px solid #ff7a5f;
+  color: #ffbba8;
+}
+
+#enemy-intel {
+  margin-top: 16px;
+}
+#enemy-intel h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--dim);
+  margin: 0 0 7px;
+}
+#enemy-canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.build-footer {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+}
+
+/* ---------- battle ---------- */
+
+.ship-status {
+  position: fixed;
+  top: 74px;
+  width: 214px;
+  padding: 11px 13px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  backdrop-filter: blur(9px);
+  z-index: 4;
+}
+.ship-status.p1 {
+  left: 14px;
+  border-top: 2px solid var(--p1);
+}
+.ship-status.p2 {
+  right: 14px;
+  border-top: 2px solid var(--p2);
+}
+.ship-status .name {
+  font-weight: 650;
+  font-size: 13px;
+  margin-bottom: 7px;
+}
+.bar {
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+.bar .fill {
+  height: 100%;
+  width: 100%;
+  background: #7ec98a;
+  transition: width 0.18s linear, background 0.3s;
+}
+.ship-status .stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.ammo {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ammo-btn {
+  flex: 1;
+  font-size: 11px;
+  padding: 6px 3px;
+  white-space: nowrap;
+}
+.ammo-btn.active {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #17120a;
+  font-weight: 650;
+}
+.key-hint {
+  width: 100%;
+  text-align: center;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.battle-log {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 70vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  z-index: 4;
+  pointer-events: none;
+}
+.battle-log div {
+  font-size: 12.5px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(8, 12, 18, 0.8);
+  animation: pop 0.25s ease-out;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+}
+
+/* ---------- overlay ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 9, 14, 0.74);
+  backdrop-filter: blur(5px);
+  z-index: 10;
+}
+.overlay.hidden {
+  display: none !important;
+}
+.overlay .card {
+  width: min(520px, 88vw);
+  padding: 30px 34px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  text-align: center;
+}
+.overlay h1 {
+  margin: 0 0 10px;
+  font-size: 30px;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+}
+.overlay p {
+  color: var(--dim);
+  margin: 0 0 20px;
+  white-space: pre-line;
+}
+.ov-log {
+  text-align: left;
+  font-size: 12px;
+  color: var(--dim);
+  margin: -8px 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ov-log:empty {
+  display: none;
+}
+.ov-log b {
+  color: var(--ink);
+  font-weight: 600;
+}
