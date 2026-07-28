@@ -1,20 +1,23 @@
 # Working notes
 
-Broadside: a two-player hot-seat game. Players fit out an age-of-sail ship during a timed
-build phase, then watch it fight itself. Five rounds, first to three. See GAME_DESIGN.md for
-the design and the reasoning behind it.
+Broadside: two to four players fit out an age-of-sail ship during a timed build phase, then watch it
+fight itself. Five rounds, first to three. Play on one keyboard or over a WebSocket. See
+GAME_DESIGN.md for the design and the reasoning behind it.
 
-No build step, no dependencies, no package.json. three.js is vendored in `vendor/`.
+No build step, no dependencies, no package.json -- including the server and its WebSocket
+implementation. three.js is vendored in `vendor/`.
 
 ## Run and test
 
 ```
-./tools/dev.sh              static server on 8123 + headless Chrome with CDP on 9222
+./tools/dev.sh              game server on 8123 + headless Chrome with CDP on 9222
 ./tools/dev.sh stop         tear both down -- always do this when finished
 open http://127.0.0.1:8123/index.html
 ```
 
-The game needs http for ES modules; opening the file directly will not work.
+`server/main.js` serves the directory and hosts the rooms on the same port, so an online game needs
+nothing else running. It replaced `python -m http.server`, which could only do the first half. The
+game needs http for ES modules; opening the file directly will not work.
 
 ```
 node tools/watch.js         is a battle worth watching: empty air, dead stretches, orbiting
@@ -33,6 +36,17 @@ node tools/fill.js          what each layer of the scene costs to draw, and how 
 node tools/playtest.js      plays a whole match through the real interface and complains
 node tools/golden.js        fingerprint 900 battles; diff it across a refactor
 node tools/shot.js out.png "800 ;; ovBtn() ;; 400" "?dev=brawler,crusher&round=5"
+```
+
+Networking and more than two ships:
+
+```
+node tools/netcheck.js      the authority and the replay, headless, over a virtual wire
+node tools/netplay.js 4     four real browsers through a whole online match
+node tools/wscheck.js       the WebSocket implementation: framing, fragments, limits, teardown
+node tools/engines.js       the same battles under node and Safari's jsc, bit for bit
+node tools/melee.js         three and four ships: length, seat fairness, builds, damage sweep
+node tools/fingerprint.js   full-precision state dump, engine-agnostic; what engines.js diffs
 ```
 
 Run the headless tools after any change to `sim/`, `config.js` or `data/`. They take seconds and
@@ -56,6 +70,17 @@ Which tool answers which question:
 - "Did I break the game?" -> `playtest.js`. Every other tool drives the simulation; this one drives
   the interface, so it is the only thing that would notice if locking in stopped working. It also
   fails the run on any console output, which is how the suspended-context audio bug surfaced.
+- "Did I break the networking?" -> `netcheck.js` first: it plays whole matches against a real room
+  over a virtual wire with latency, jitter and reordering, in milliseconds, and checks the client's
+  replay against the authority tick for tick. Then `netplay.js` for the parts only real browsers and
+  a real socket can show -- the lobby, the clock estimate, the join code.
+- "Will this desync on somebody else's browser?" -> `engines.js`. It is the only tool that can
+  answer, and the answer was no for a long time. See the determinism note below.
+- "Is a three- or four-way worth playing?" -> `melee.js`. Length, empty air, seat fairness against
+  binomial noise, whether the field size changes what to build, and the `parts.js` lens run at every
+  field size. Read section 5 before section 3: section 3 fights pure archetypes and is bimodal by
+  construction, and where the two disagree section 5 has been right both times.
+  It takes about 20 seconds, which is the one tool here that is not instant.
 
 ## Measure, do not guess
 
@@ -83,6 +108,30 @@ came from a tool, and several confident guesses were wrong:
   in a first-to-three, so there was nothing to fix.
 - A carronade ship with twice the raw damage of its opponent lost 100% of battles. Not a stats
   problem: a single grape volley was killing its entire crew three seconds in.
+
+- Three or four ships was assumed to need *less* incoming damage per gun, since everyone is shooting
+  at you. Backwards: a duel ends when one ship sinks and a four-way when three do, so the guns have
+  three times as much hull to get through. Uncorrected, a four-way ran 38.9s and only a third of them
+  reached a verdict. `SHIP_COUNT_DAMAGE` goes *up*.
+- A ring start was assumed to be fair by symmetry. It was 79% / 7% / 14% by seat, because on a ring
+  every ship is exactly equidistant from its two neighbours and "nearest enemy" was decided by which
+  of two identical distances came out smaller in float32 -- which is not symmetric. Two ships locked
+  onto each other and left seat 0 alone.
+- The simulation was assumed to be deterministic across machines because it has a seeded rng and no
+  `Math.random`. It was not: 68% of sampled ship states differed between Node and Safari within one
+  second. See the determinism note below.
+- The simulation was assumed to run at a fixed 60Hz. It did not: `advance(dt)` ran whatever fraction
+  of a tick was left over at the end, so `advance(0.25)` took sixteen ticks and the step size was
+  really the caller's frame time.
+
+- The carronade looked like a trap in a melee: 0.30 times even at three ships against 1.33 in a duel,
+  from the pure-archetype grid. It is not. Under the random-build lens it reads 48% / 43% / 43% as the
+  field grows -- weak, never a trap -- and on the sloop the melee makes it *less* bad. The same pure
+  grid that says 0.30 says 1.33 for the duel, and the random lens contradicts both, which is the
+  bimodality this file already warns about, caught in the act.
+- The massed battery looked strong in a melee (1.46 at three ships, pure builds). Under random builds
+  it is 45% / 49% / 47% -- dead even at every field size. The `ORBIT_SENSE` door is still shut with
+  three and four ships on the water, which is what that regression guard exists to say.
 
 Two habits worth keeping. First, measure *feel* separately from *fairness* — giving both ships
 the same orbit sense flips only 26% of winners, so `ablate.js` calls it middling, while
@@ -118,16 +167,190 @@ flank to hide the crew and powder behind, and a build that did so won 100% of 80
 every hull size. `autobuild.js` keeps a `massed` archetype to hold that door shut — it should
 measure near 50% against `brawler`, and if it ever climbs, that rule has been undone.
 
+## Networking
+
+Two to four players, one authority, and a battle every client reproduces rather than receives.
+
+`src/net/room.js` is the authority: one room is one match, and it owns the phases, the purses, the
+offers, the validation and the battle that counts. It touches no DOM, no renderer, no socket and no
+wall clock -- time arrives as an argument to `update(now)` and messages leave through `emit(target,
+msg)`. That is what lets the same file be the server for four browsers, the in-process authority for a
+game on one laptop, and a headless harness that plays a five-round match in a few milliseconds.
+
+**Local play is the networked path with the wire taken out.** `src/net/local.js` runs the same
+`createRoom` in the page and hands messages straight to the client. A hot-seat game is therefore not
+a second implementation of the flow that happens to resemble the online one; it is the online one.
+This is the single most valuable decision in the networking work, because it means playtesting
+locally exercises the code that decides an online match. The one difference is `hotseat: true`, which
+runs build phases one seat at a time instead of all at once.
+
+**The battle is replayed, not streamed.** The server sends `{seed, hullIndex, windTo, designs,
+startAt}` once, then relays each ammunition toggle stamped with a tick number. Clients build the same
+battle from those numbers and run it. Nothing about a ship's position ever crosses the wire; there
+would be no point, since both sides compute it from the same inputs. A whole battle is a handful of
+messages of a few dozen bytes.
+
+**Latency is absorbed by playing in the past.** The client runs its replay `net.delayMs` behind its
+estimate of the server's tick, so an input stamped for tick N has already arrived by the time tick N
+is simulated. That is the entire latency strategy, and it works because the only input in the game is
+a toggle that already costs a 1.3s reload -- 100ms of input delay is not perceptible. Deterministic
+lockstep was considered and rejected: its whole benefit is hiding latency for dense continuous input,
+which this game does not have, and its failure mode is stalling the simulation to wait for a packet.
+
+**A late input is repaired, not papered over.** If a toggle arrives stamped for a tick already run,
+the replay is wrong by construction. The client rebuilds it from tick zero and replays the whole input
+stream -- a few milliseconds at 3000 battles/sec -- and widens its delay so the next one is not late.
+The delay only grows within a session, because relearning it every round means paying for the lesson
+five times. Measured on `netcheck.js` with a clock estimate 120ms wrong: 39 late inputs per client per
+match before the adaptation, 2 after.
+
+**The server states a checksum twice a second** (`sim/checksum.js`, FNV-1a over quantised state) and
+the client compares it at exactly the same tick. Both walk ticks through
+`timeline.runToMarks`, because a checksum taken at tick 61 on one machine and 60 on the other compares
+nothing. A mismatch triggers the same rebuild. The authority's verdict is what the result screen
+shows, so a client that drifts is a cosmetic problem and never a lost match.
+
+**The client is not trusted.** Every build action is a command -- place, remove, refit, reroll, lock
+-- validated against the room's own state by `src/shipyard.js`. The client applies the same rules
+first, so a click lands on the deck immediately rather than a round trip later; when the two disagree
+the room says so and sends the design back, and the client's copy is replaced wholesale rather than
+patched. `netcheck.js` has a section for exactly this.
+
+**No seed derived from the match seed ever reaches a client.** `hashSeed` is a couple of
+multiplications by an odd constant and is trivially invertible, so handing out an offer seed hands out
+the match seed -- and the match seed decides which beam the battle turns to, which CLAUDE.md already
+records as worth 100% of 800 battles to a player who knows it. So offers are drawn by the authority
+and rerolls are a round trip, and the battle seed is published at the moment the guns start and not
+one moment earlier.
+
+A disconnected player keeps their seat for 30 seconds and the bot works their ammunition while they
+are away, so a flaky connection is a stutter and not a forfeit. A reconnect is handed the stored
+battle message plus the whole stamped input log and catches up by simulating.
+
+### Determinism across engines, which is not free
+
+`sim/` has a seeded rng, no `Math.random` and fixed ticks, and that is not enough. ECMA-262 calls
+`sin`, `cos`, `atan2`, `pow`, `exp` and `log` implementation-approximated: an engine may return
+anything within an unspecified tolerance. Measured with `tools/engines.js`, V8 and Safari's
+JavaScriptCore disagree on 4% of `sin` arguments and 21% of `atan2` arguments by up to 3 ULP, and
+that was enough to make **68% of sampled ship states differ between Node and Safari inside the first
+second of a battle**. No winner ever flipped -- the steering controller is contractive and damage is
+quantised -- but a desync detector that fires on two thirds of its checks detects nothing.
+
+The fix is `fsin`, `fcos` and `fatan2` in `sim/geometry.js`: every transcendental in the simulation
+rounds its result to float32 with `Math.fround`. A disagreement of a few double ULP collapses onto one
+float32, and ordinary arithmetic and `sqrt` are exactly specified by IEEE 754, so the rest of the
+chain follows. After it, `engines.js` reports the two engines bit-identical, and it cost nothing on
+`bench.js` and not one line of `golden.js`.
+
+Worth knowing:
+
+- `Math.sqrt` needs no wrapper and never will. IEEE 754 *requires* correct rounding for square root
+  and only *recommends* it for transcendentals, and a 2024 normative change to ECMA-262 removed
+  `sqrt`'s implementation-approximated status. `geometry.js len()` is safe on every engine forever.
+- It is not a proof. A result sitting exactly on a float32 rounding boundary still splits, about one
+  call in 2^29. That residue is why the server's outcome is authoritative rather than merely agreed.
+- `config.js` imports the wrappers from `sim/geometry.js`, which looks like a layering inversion and
+  is the lesser evil: `startPositions` and `windFactor` are read by the simulation, so they have to
+  give the same answer everywhere, and a second copy of the wrappers is worse.
+- `golden.js` cannot see this class of bug at all -- it prints rounded fingerprints. `engines.js` and
+  `fingerprint.js` exist because it cannot.
+
+### The simulation advances in whole ticks
+
+`battle.advance(dt)` carries the remainder and runs only whole ticks; `battle.advanceTicks(n)` runs
+exactly n. It did not used to: it subdivided the caller's dt and ran whatever fraction was left over,
+so `advance(0.25)` took sixteen ticks (fifteen full and one of 5e-17) and a browser drawing at an
+uneven frame rate ran a different number of differently sized ticks than the harness. Invisible in a
+game watched on one machine, fatal for one replayed on two, because a tick number is the only thing an
+input can be stamped with. Fixing it moved 2 of 900 golden fingerprints -- both the same seed, neither
+a different winner.
+
+## Three and four ships
+
+A melee is a duel with target selection added and the incoming damage repaced, and deliberately
+nothing else. Every melee path reduces *exactly* to the two-ship code at two ships -- same
+arithmetic, same order, same draws from the rng -- and `golden.js` is byte-identical across the whole
+change, which is how that claim is checked rather than hoped for. `SHIP_COUNT_DAMAGE` and
+`SHIP_COUNT_ARENA` are indexed by ship count and read 1 at index 2; `startPositions` branches to the
+mirrored pair.
+
+- Ships start evenly spaced on a ring, each pointing at the middle. Initial targets are a **round
+  robin**, not the nearest enemy: on a ring the two neighbours are exactly equidistant and float32
+  noise picked between them asymmetrically, which measured as 79% / 7% / 14% by seat. A rotation is
+  the one assignment no seat can be favoured by, and at two ships it is still the other ship. After
+  the fix every seat is inside binomial noise at three and four ships.
+- `pickTarget` reconsiders every `TARGET_RECHECK` and only switches for a rival inside
+  `TARGET_SWITCH_MARGIN` of the current range. Without the margin a ship between two enemies swaps
+  every few ticks and sails down the middle with its guns bearing on nothing.
+- A ship that strikes leaves the fight and stays on the board. Shot already on its way to her splashes
+  instead of pounding a hulk, dropped in one pass when she strikes rather than tested per projectile
+  per tick.
+- `ship.foes` is the list of enemies still afloat, rebuilt only when someone strikes, so the busiest
+  loop in the game has no liveness test in it.
+- The economy pays comeback money by placing rather than by winning: `battle.placing` orders the field
+  and `placeBonus` scales the loser's bonus by where you came in. At two players it is exactly the old
+  `loserBonus` and nothing else.
+
+Measured, at the tuned values: a three-way settles in 16.6s at 38% empty air and a four-way in 17.1s
+at 34%, against a duel's 14.2s at 30%, and both are essentially always decisive. Length and empty air
+trade against each other the whole length of the damage sweep, so the clock can always be bought and
+the only question is the price.
+
+## Hulls in contact
+
+Two problems that looked cosmetic and one of them was.
+
+**Separation could not be one number.** A ship of the line is ten cells long and five wide, so bow to
+bow two of them need twice the room they need beam to beam. With a single floor, measured, hulls
+overlapped by up to 5.2 world units -- a third of a frigate's length -- and a ship of the line spent 21%
+of every duel inside its opponent. `steering.js separate()` now takes the greater of the old floor and
+the elliptical support radius of the two decks along the line joining them, which drops overlap to zero
+at every hull and field size.
+
+Only ever the greater, and that is the load-bearing half of the rule: the fight settles with the enemy
+abeam, which is the cheapest orientation, and a rule that could *lower* the floor there would move the
+range two ships settle at. Ablated against the old floor over 6000 paired battles: 6 winners flipped
+(0.1%), mean finishing time moved 0.11s, and 2 of 150 matchup cells moved -- one of them toward even.
+So no gun's range needed retuning, which was the thing to check before touching this at all.
+
+**Contact now costs something.** `damage.js grind()` puts a crunch into the cell nearest the point of
+contact on both ships, once per pair per half second, scaled by how fast the two hulls are moving
+relative to each other. A crunch rather than damage per tick because `damageCell` has a floor of one
+point per call, so sixty calls a second would saw a timber in half -- and because a discrete crunch has
+an impact, a sound and a log line, which is what makes it something a player sees happen rather than a
+bar going down.
+
+Measured the same way, and the split is the point: a duel flips 0.1% of winners and moves the mean
+battle from 14.33s to 14.28s, because two ships orbit at their preferred range and rarely touch. A
+four-way flips 5.8% and comes in 0.45s shorter, because four ships in one arena crowd. That is flavour
+in the duel the part table was tuned around, and a real consideration in the melee -- and it means
+ramming is available to a player who wants it without being a strategy that reads on the duel grid.
+Dismastings went from 695 to 854 per 1080 battles, which is rigging tearing as hulls grind past.
+
 ## Architecture invariants
 
 ```
 src/config.js      every gameplay and feel constant. Tools read the same file
-src/theme.js       every colour. Keep PLAYER[] in step with --p1/--p2 in styles.css
-src/match.js       scores, purses, hull progression, intel. Pure: no DOM, no three.js
+src/theme.js       every colour. Keep PLAYER[] in step with --p1..--p4 in styles.css
+src/match.js       scores, purses, hull progression, intel, the shop offer. Pure
+src/shipyard.js    the rules of fitting out: cost, legality, refunds. Pure, and the authority's
 src/autobuild.js   greedy ship builder: bot opponent and the dev Fill button
+src/bot.js         the ammunition decision, for bots and for absent players
 src/dev.js         URL-driven dev harness, inert without ?dev
 src/perf.js        frame stats, always on: an EMA for scale, percentiles for the tail
-src/main.js        presentation and flow: phases, input, render loop
+src/main.js        presentation and flow: overlays, camera, input, render loop
+
+src/net/           the networked game, and the local one
+  protocol.js      every message name and every constant both sides must agree on
+  room.js          the authority: one room is one match. No DOM, no socket, no wall clock
+  client.js        what this browser believes, and the battle it draws
+  local.js         transport for a game with no network: the authority runs in the page
+  socket.js        transport over the wire: clock estimate, reconnect, heartbeat
+
+server/            the host process. Node, no dependencies
+  main.js          static files and rooms on one port
+  ws.js            RFC 6455, by hand: handshake, framing, fragments, ping, close
 src/render/        three.js scene, ship meshes, particles, glyph textures
   sea.js           the sea, the wind and the arena ring, as one full-screen triangle
   quality.js       the adaptive resolution control loop, kept apart from the scene
@@ -138,12 +361,14 @@ src/data/          parts, hull shapes (ASCII art)
 
 src/sim/           the deterministic battle core, one file per question
   rng.js           seeded generator
-  geometry.js      len, wrapAngle, ship-local to world
+  geometry.js      len, wrapAngle, ship-local to world, and the float32 trigonometry
   ship.js          the persistent design, and the runtime state of one ship in one battle
-  steering.js      how the two ships sail and hold station
+  steering.js      how the ships sail, hold station, and choose who to fight
   gunnery.js       firing, shot in flight, and where a ball lands
   damage.js        what a ball does on arrival: structure, crew, magazines, severing
   battle.js        the clock over all of it, and how a round ends
+  timeline.js      a battle plus its stamped input stream. Authority and replay share it
+  checksum.js      a fingerprint of battle state, for catching a replay that has drifted
 
 tools/             headless harnesses and the CDP driver
   cdp.js           one DevTools client for every tool that drives the real browser
@@ -163,11 +388,25 @@ Hold these:
   `data/hulls.js`, colours in `theme.js`. Do not scatter magic numbers into logic.
 - **`render/shipView.js` `buildLayer()` is the asset seam.** One instanced layer per part
   type; swapping the box for a loaded mesh per type is the whole migration to real 3D.
-- **`main.js` is the only file that knows about both the DOM and the simulation.**
+- **`main.js` is the only file that knows about both the DOM and the simulation,** and it no longer
+  knows the rules of anything: no purses, no legality, no verdicts. It draws what the client says is
+  true and turns clicks into commands. If a rule is being decided in `main.js` or in `ui/`, it is in
+  the wrong file -- `net/room.js` decides, `shipyard.js` and `match.js` hold the rules it applies.
+- **`net/room.js` is the only authority, and local play uses it too.** Anything that reimplements a
+  rule for the local case will drift from the online one, and the drift will not be found by playing
+  locally, which is how the game is mostly played while being built.
+- **Nothing in `sim/` or `net/room.js` may touch a wall clock.** Time is an argument. That is what
+  makes a five-round match testable in milliseconds and a room's behaviour reproducible.
+- **Every transcendental in `sim/` goes through `fsin`/`fcos`/`fatan2`.** A bare `Math.sin` in the
+  simulation is a cross-browser desync waiting for a threshold to cross. `tools/engines.js` catches it;
+  `golden.js` cannot.
 - **The sim's hot path is performance-sensitive on purpose.** Every question here is answered by
   running thousands of battles, so throughput compounds across a session. `tools/bench.js` reports
-  it: ~3200 battles/sec, about 45,000 simulated seconds per real second. Do not reintroduce
-  per-tick allocation or per-tick trigonometry.
+  it: about 3100 battles/sec, roughly 45,000 simulated seconds per real second. Do not reintroduce
+  per-tick allocation or per-tick trigonometry. It was ~3200 before the melee, and the 3% went on
+  target selection and the per-ship loops in `tick`; the float32 trigonometry cost nothing measurable.
+  Measure `bench.js` on an idle machine -- it swings by a factor of three under load, which is easy to
+  mistake for a regression.
 - **Refactor against `tools/golden.js`.** Record it, change the code, diff it. Anything meant to be
   structural must leave it byte-identical. It has already caught one refactor that changed
   behaviour and one that did not but looked like it might.
@@ -175,8 +414,8 @@ Hold these:
 
 ## What made the simulation fast
 
-From 1131 to ~3200 battles/sec, all of it from the profiler (`node --cpu-prof`) and none of it from
-guessing. Worth knowing which lever is which, because the shape repeats:
+From 1131 to ~3200 battles/sec (about 3100 since the melee), all of it from the profiler
+(`node --cpu-prof`) and none of it from guessing. Worth knowing which lever is which, because the shape repeats:
 
 - The cell grid is a *dense* array of nulls, not a sparse one. This was the single largest win, and
   the least obvious: a JavaScript array left full of holes can fall out of V8's fast element kinds,
@@ -194,6 +433,14 @@ guessing. Worth knowing which lever is which, because the shape repeats:
 - `severDisconnected` marks reachability with a per-ship stamp instead of a `Set` of strings, and
   skips the flood fill when the lost cell had at most one live neighbour -- but only after the
   first full sweep, because a build can start out with a section not joined to the helm.
+
+- Keep a per-tick function small enough for V8 to inline. Generalising `checkEnd` to four ships grew
+  it past the inlining budget and the whole of it stopped being inlined -- 6% of throughput, showing up
+  in the profile as a new `checkEnd` entry and a `tick` that had doubled. Splitting the hot test from
+  the cold verdict, which now lives in two functions that run once per battle, got it back. The lesson
+  generalises: in this simulation a function called every tick is either small or not inlined.
+- `ship.foes` is a list of the enemies still afloat rather than a list of all of them with a liveness
+  test. It changes at most three times in a battle and is read guns times foes times ticks.
 
 Two things measured as *not* worth doing, which is equally useful to know: pooling the `effects`
 objects (no measurable cost at all) and shortening projectile lifetimes (already handled by the
@@ -251,6 +498,12 @@ Rules worth not relearning:
 - Beware what you measure: the first version of the onset check flagged the detonation, because high
   frequencies have large sample-to-sample deltas by nature. Measuring the step *out of silence* is
   the thing that distinguishes a click from a bright sound.
+- A four-way is the worst case the mixer has, and it holds. `node tools/mix.js 150 4` pins every
+  battle to four ships, which is about twice a duel's gunfire: cannons stay at 100% heard and the peak
+  level rises from 8.90 to 9.11, which is the level-spending rule working exactly as intended -- twice
+  the events for 2% more level. What does give is the least important cue: `break` drops from 100% to
+  84% and `splash` from 67% to 54%, because three ships coming apart clusters those events. Left alone
+  deliberately; widening the queue for them would spend the peak level that was hard to win.
 - `tools/audio.js` renders offline and will happily measure a stale module. It disables the HTTP
   cache over CDP now; before that a "why is my new sound missing" session started here.
 
@@ -264,6 +517,19 @@ a cell's condition actually changes.
 Particles are three instanced meshes. Everything lies flat on the water and blends additively,
 which means the flat rotation bakes into the geometry (instance matrices are translate+scale
 only) and opacity rides in `instanceColor`, since fading additively is the same as darkening.
+
+A ship that strikes her colours fades into the sea colour rather than turning transparent, and the
+reason is the shared materials. One `MeshLambertMaterial` serves the deck plates of every ship, so
+lowering its opacity would fade the whole fleet; the part glyphs and the flagpole share materials too.
+So the wreck is darkened toward `SEA.water` through the per-instance colours it already owns, the
+handful of materials that *are* per view are faded properly, and the two on shared materials -- the
+flagpole and the glyphs -- are hidden instead, at a point in the descent where a mast slipping under is
+what it looks like. The hull settles two and a half units at the same time, and the whole group is
+hidden once it is within half a percent of the water's colour, since an invisible wreck still costs a
+draw call per part layer.
+
+This matters more than it sounds: in a melee the survivors sail straight over the wreck, so without it
+two hulls occupy the same water and it reads as a bug rather than as a wreck being passed.
 
 Anything called per frame must be dirty-tracked. `hud.js` guards every DOM write; `scene.js`
 only resizes the canvas and rebuilds the projection when something changed.
@@ -440,6 +706,59 @@ Two consolidations worth not undoing:
 
 ## Gotchas already paid for
 
+Networking and the melee added these:
+
+- **Do not stop listening for the gesture until the context is actually running.** The audio unlock
+  removed its own listeners as soon as it had *called* `resume()` once, which assumes the call worked.
+  Any browser that refused it, came up suspended anyway, or suspended the context again later left the
+  game permanently mute with nothing able to try again -- and the only thing that appeared to fix it was
+  pressing the mute button twice, because `setMuted` is the one other place that writes the master
+  gain. It now stays subscribed until `ctx.state === 'running'`, listens for five kinds of gesture
+  (activation is not granted on the same event in every browser), rewrites the gain whenever the
+  context reaches running, and resumes on `visibilitychange`. `__dev.state().audio` reports all four
+  reasons there might be no sound, because from the outside they are indistinguishable.
+- **`syncFromBattle` writes the ship's whole position every frame, so anything else that moves the
+  group loses.** The sinking animation set `group.position.y` and the next frame set it back to zero:
+  the wreck faded on the spot without ever settling. Every per-frame write is a place a per-event write
+  can be silently undone.
+
+- **An in-process authority answers synchronously.** In a local game `client.lock()` runs the whole
+  handoff before it returns, so code written in the obvious order -- send the command, then update the
+  panel -- lands on the *next* phase's panel. Autoplay locked in the first captain and then disabled
+  the second captain's lock button, so every hot-seat build phase ran its full forty seconds and the
+  room had to time it out. Every handler in `ui/build.js` now states its feedback *before* sending.
+  Nothing about it is visible over a socket, where the reply is a round trip away, which is exactly
+  what makes it worth a comment.
+- **A hidden tab gets no `requestAnimationFrame` at all** -- stopped, not throttled -- so its frame
+  loop does not run and its replay of the battle sits at tick zero. That is right for a real player,
+  since there is nothing to draw, and it means a driver with four tabs open can only ever see one of
+  them play. `--disable-renderer-backgrounding` and friends do not fix it. `__dev.pump(dt)` supplies
+  the clock instead, which is what `netplay.js` uses and what every other headless tool here already
+  does. The cost in coverage is that `netplay.js` does not prove the frame loop calls `update()`;
+  `playtest.js` and `shot.js` run a visible tab and do.
+- **The dev harness used to write designs directly and now has to obey the shop.** The offer is five
+  part types out of nine, so filtering a planned build against it dropped every gun of an archetype
+  whose gun was not on offer, and two such ships met and neither could fire. Rounds ended on the
+  five-second stalemate rule and a whole autoplayed match was nothing but draws -- it read as a
+  balance collapse and it was a harness bug. `dev.js planFor()` picks a gun the shop is *selling*.
+- **`Math.fround` is load-bearing, and `golden.js` cannot see it.** See the determinism note.
+- **A ship view holds a reference to `design.parts`.** When the authority corrects a design, the
+  client replaces the contents of that object rather than swapping in a new one; swapping leaves the
+  deck on screen showing the design that was just thrown away.
+- **The RFC 6455 magic GUID is `258EAFA5-E914-47DA-95CA-C5AB0DC85B11`.** A wrong one passes any test a
+  server writes for itself and is rejected by every real client, because the client verifies the
+  digest -- the symptom is every connection closing before it opens, with nothing saying why.
+- **`http.Server` builds its sockets with `allowHalfOpen`,** so an upgraded socket whose peer sends FIN
+  and stops leaves our writable half open for ever: no `close` event, one leaked connection per
+  departed player, and `server.close()` hanging for thirty seconds. `socket.on('end', () =>
+  socket.end())`. Found by counting opens against closes; every other symptom of it looks like
+  something else.
+- **`tools/melee.js` patches `config.js` by exact string match** for its damage sweep, the same way
+  `ablate.js` and `tune.js` do. Changing `SHIP_COUNT_DAMAGE` breaks it loudly; fix the patch string in
+  the same commit. This bit once, immediately, exactly as documented below.
+- **Chrome's `/json/new` needs PUT** and rejects GET, which is a change from older versions and the
+  reason `cdp.js openTab()` looks the way it does.
+
 - A `<canvas>` is a replaced element: `position: fixed; inset: 0` leaves it at its intrinsic
   300x150. State `width`/`height` explicitly.
 - `THREE.Fog` plus an orthographic camera 300 units back flattens the scene to one colour.
@@ -502,7 +821,23 @@ exposes `__dev` for the CDP driver:
 __dev.clickCell(dx, dz)    project a hull cell to screen and dispatch real pointer events
 __dev.pickCard('gun deck') select an offered part by name, prefix-matched
 __dev.tool('btn-reroll')   press reroll / refit / remove / lock in
-__dev.state()              phase, round, score, purse, offer, readout, warnings, hint, battle
+__dev.proceed()            press whatever the overlay button currently says
+__dev.ammo(seat, 'grape')  switch a seat's ammunition, for a driver that cannot press keys
+__dev.pump(dt)             advance the client by hand, for a tab that is not the visible one
+__dev.state()              phase, seat, roster, score, purse, offer, readout, hint, wire, battle
+```
+
+The URL says what to play, so no tool has to click through a menu:
+
+```
+?dev=1                     manual play on one keyboard, plus a Fill button
+?dev=brawler,sniper        autoplay, one archetype per seat
+?dev=draft&players=4       autoplay, four drafted ships
+?dev=1&bots=2              you plus two bots, locally
+?dev=1&net=1               open an online room on this origin
+?dev=1&net=1&room=ABCD     join one
+?dev=1&net=1&watch=1&room=ABCD   join as a spectator
+&name=Anne                 the name other players see
 ```
 
 `&seed=1234` pins the match seed. Without it every match is random, which means a bug found while
@@ -545,4 +880,19 @@ and boring dominant plays is. Working numbers, from published practice:
   per-part damage summary; a log says what happened, a summary says which decision was wrong.
 - The random engaged beam is only a fair gamble if the player is told the odds. They are not
   told at all.
-- No networking yet. The sim is ready for it; `main.js` is the part that changes.
+- The gun deck reads past 60% in a melee under the random-build lens: 55% in a duel, 64% at three
+  ships, 63% at four, and 70-72% on a ship of the line. That is "wins games on its own", and it is the
+  one melee reading not explained away below. It is also not a per-ship-count constant that put it
+  there — flattening `SHIP_COUNT_ARENA` or `SHIP_COUNT_DAMAGE` moves the gun edges by at most two
+  points, and flattening the damage scale wrecks the clock. It is intrinsic to having three enemies:
+  `far` goes 24% to 48% as the field grows, so reach is worth more and a short gun has to close on one
+  ship while two others shoot it. The only lever left is the part table, which costs the duel, where
+  the gun deck is in band. Left alone deliberately; if a melee ever becomes the default rather than a
+  variant, this is the row to revisit, and the honest fix is the part table plus a duel re-measure.
+- Spectators are supported by the protocol and the server and have no way in from the interface except
+  `?dev=1&net=1&watch=1&room=ABCD`.
+- Nothing rate-limits build commands per socket. The room refuses illegal ones, so the exposure is
+  noise rather than cheating, but a client sending a thousand places a second would be served.
+- Four-way rounds are decided on the last ship afloat. An alternative worth measuring is ending the
+  round on the *first* strike, which would shorten a four-way to a duel's length without buying it
+  with empty air; `melee.js` section 4 shows damage alone cannot.

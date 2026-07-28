@@ -4,6 +4,7 @@
 import { PARTS } from '../data/parts.js';
 import { HULLS, cellKey, isBowCell } from '../data/hulls.js';
 import { CELL, mastsWanted, massFactor, sailFactor } from '../config.js';
+import { fcos, fsin } from './geometry.js';
 
 export const HELM_KEY = '0,0';
 
@@ -148,8 +149,10 @@ export function cloneDesign(design) {
   return { parts };
 }
 
+// Ships are named by seat, because ownership is carried by the hull colour and not the cargo.
+// A room can rename a seat for the interface; the simulation's log stays impersonal.
 export function shipName(ship) {
-  return ship.index === 0 ? 'Player 1' : 'Player 2';
+  return `Player ${ship.index + 1}`;
 }
 
 export function makeBattleShip(design, hullIndex, index, startPos, startHeading) {
@@ -208,13 +211,13 @@ export function makeBattleShip(design, hullIndex, index, startPos, startHeading)
       // direction as a rotation of the ship's heading and its width as a cosine. A gun that bears
       // all round gets halfArc >= 180, whose cosine is -1, and the test passes unconditionally
       // without needing a special case.
-      arcCos: Math.cos(arc),
-      arcSin: Math.sin(arc),
+      arcCos: fcos(arc),
+      arcSin: fsin(arc),
       // Squared, because the arc test compares squared lengths to keep a square root out of the
       // inner loop. Sound only because every directional arc here is under a quarter turn, so its
       // cosine is positive; a gun that bears all round skips the test entirely.
       allRound: halfArc >= Math.PI / 2,
-      cosHalfArcSq: Math.cos(halfArc) * Math.cos(halfArc),
+      cosHalfArcSq: fcos(halfArc) * fcos(halfArc),
       rangeSq: part.gun.range * part.gun.range,
       // An absolute deadline rather than a countdown: a gun is ready when battle.time reaches it.
       // Counting down meant writing to every gun on every tick, whether anything was happening or
@@ -248,8 +251,8 @@ export function makeBattleShip(design, hullIndex, index, startPos, startHeading)
     hitRadiusSq: hitRadius * hitRadius,
     // Heading is fixed for the duration of a tick, so its sine and cosine are cached rather than
     // recomputed per gun and per projectile. steer() refreshes them.
-    cos: Math.cos(startHeading),
-    sin: Math.sin(startHeading),
+    cos: fcos(startHeading),
+    sin: fsin(startHeading),
     // Maintained rather than recounted: steer() and checkEnd() both want it every tick.
     aliveCells: cells.length,
     x: startPos.x,
@@ -261,8 +264,20 @@ export function makeBattleShip(design, hullIndex, index, startPos, startHeading)
     initialStructure: cells.reduce((a, c) => a + c.maxHp, 0),
     // sailFactor's target mast count never changes during a battle.
     sailWanted: mastsWanted(cells.length),
+    // The hull as an ellipse, for keeping two of them out of each other. Half the deck's length along
+    // the ship and half its width across, in world units -- the drawn silhouette is a little larger
+    // still, but the deck plates are what a player sees overlapping.
+    semiLong: (HULLS[hullIndex].length / 2) * CELL,
+    semiWide: (HULLS[hullIndex].width / 2) * CELL,
     reachStamp: 0,
     swept: false,
+    // Melee bookkeeping. `out` is set when the helm goes and the ship leaves the fight; `outAt` is
+    // when, which is how a four-way is placed below the survivor. Both are inert in a duel, which
+    // ends the moment either is set. `target` and `enemies` are filled in by createBattle.
+    out: false,
+    outAt: 0,
+    target: null,
+    enemies: null,
   };
   refreshSystems(ship);
   return ship;

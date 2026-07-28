@@ -3,6 +3,10 @@
 // is here. tools/balance.js, tools/match.js and tools/events.js all read from this, so a
 // change here is measurable in seconds.
 
+// The float32-collapsed trigonometry from the simulation, because the few functions here that use
+// any are read by the simulation and have to give the same answer on every engine. See geometry.js.
+import { fsin, fcos, fatan2 } from './sim/geometry.js';
+
 // ---------------------------------------------------------------------------
 // Space and time
 // ---------------------------------------------------------------------------
@@ -31,15 +35,78 @@ export const ARENA_RADIUS = 60;
 export const START_OFFSET = { x: 9, z: 24 };
 
 // ---------------------------------------------------------------------------
+// More than two ships
+// ---------------------------------------------------------------------------
+//
+// A melee is not a duel with extra ships in it, and three numbers below carry that. They are all
+// exactly neutral at two ships, so the duel the game was tuned around is untouched: SHIP_COUNT_*
+// index by ship count and read 1 at index 2, and startPositions branches to the mirrored pair.
+
+export const MAX_PLAYERS = 4;
+
+// Incoming damage by how many ships are in the fight. Indexed by ship count, exactly 1 for a duel.
+//
+// The first version of this was 0.62 and 0.46 -- pulling damage *back*, on the reasoning that a ship
+// in a four-way is under fire from three directions. That reasoning is wrong, and tools/melee.js said
+// so: a duel ends when one ship sinks, a four-way when three do, so the extra guns are spread over
+// three times as much hull to get through. Uncorrected, a three-way ran 24.6s and a four-way 38.9s
+// against the duel's 14.2s, with only a third of four-ways reaching a verdict at all before the bell.
+//
+// So it goes up. These are the values with the least empty air inside the 13-17s band: a three-way
+// settles in 17.0s at 38% dry and a four-way in 17.0s at 34%, against the duel's 14.2s at 30%, and
+// four-ways go from 34% decisive to 100%. Matching the duel's clock exactly wants [4, 6] and costs
+// about fifteen more points of empty air, which is the wrong way round -- the last gameplay pass was
+// aimed at dead time, not at length. Length and empty air trade against each other the whole length of
+// the sweep, so the clock can always be bought and the only question is the price. Rerun tools/melee.js
+// after touching the part table or the economy.
+export const SHIP_COUNT_DAMAGE = [1, 1, 1, 2, 3];
+
+// The arena grows with the field, or four ships start inside each other's carronade range and the
+// opening is a pile-up rather than an approach.
+export const SHIP_COUNT_ARENA = [1, 1, 1, 1.18, 1.32];
+
+export function arenaRadius(shipCount) {
+  return ARENA_RADIUS * (SHIP_COUNT_ARENA[shipCount] ?? 1);
+}
+
+// Where ships start. Two ships keep the mirrored pair the duel was tuned on, byte for byte; more
+// than two stand evenly around a ring, each pointing at the middle, so nobody starts with a free
+// broadside on a ship that cannot answer.
+export function startPositions(shipCount) {
+  if (shipCount === 2) {
+    return [
+      { x: -START_OFFSET.x, z: START_OFFSET.z, heading: 0 },
+      { x: START_OFFSET.x, z: -START_OFFSET.z, heading: Math.PI },
+    ];
+  }
+  const radius = arenaRadius(shipCount) * 0.52;
+  const out = [];
+  for (let i = 0; i < shipCount; i++) {
+    const theta = (Math.PI * 2 * i) / shipCount;
+    const x = radius * fsin(theta);
+    const z = -radius * fcos(theta);
+    // Heading is the direction of travel, and (sin h, -cos h) points at the origin when h faces in.
+    out.push({ x, z, heading: fatan2(-x, z) });
+  }
+  return out;
+}
+
+// How often a ship reconsiders who it is fighting, and how much closer a new candidate has to be
+// before it is worth turning for. Without the margin a ship between two enemies at the same range
+// swaps every few ticks and sails straight between them, guns bearing on nothing.
+export const TARGET_RECHECK = 0.6;
+export const TARGET_SWITCH_MARGIN = 0.8; // a rival must be inside this fraction of the current range
+
+// ---------------------------------------------------------------------------
 // Sailing
 // ---------------------------------------------------------------------------
 
 export const BASE_SPEED = 13.5; // units/sec at full sail, running with the wind
 export const BASE_TURN = 1.15; // rad/sec at full sail
-// Hulls must not interpenetrate, and a ship of the line is nearly nine cells long, so the
-// floor scales with the hull. tools/tune.js separation shows this changes no outcomes at all --
-// the preferred range holds the ships much further apart than this - so it is purely a matter of
-// two grand ships not appearing to grind through each other.
+// The floor under how close two hulls may get, before geometry. It is only a floor now: steering.js
+// separate() takes the greater of this and what the two hulls actually need along the line joining
+// them, because one distance cannot express a shape that is twice as long as it is wide. This number
+// still matters for small hulls, where the ellipses would otherwise let two sloops nearly touch.
 export const MIN_SEPARATION = 9;
 export function minSeparation(hullLengthCells) {
   return Math.max(MIN_SEPARATION, hullLengthCells * CELL * 0.55);
@@ -112,7 +179,7 @@ export function sailFactor(aliveMasts, wanted) {
 }
 
 export function windFactor(heading, windTo) {
-  return WIND_MIN + ((1 - WIND_MIN) * (Math.cos(heading - windTo) + 1)) / 2;
+  return WIND_MIN + ((1 - WIND_MIN) * (fcos(heading - windTo) + 1)) / 2;
 }
 
 // The same thing from cached sines and cosines, via cos(h - w) = cos h cos w + sin h sin w. The
@@ -125,6 +192,26 @@ export function windFactorFrom(cosH, sinH, cosW, sinW) {
 // How far out a ship wants to fight, as a fraction of its weapons' reach. Below 1 so guns
 // stay comfortably in range rather than flickering at the edge of it.
 export const PREFERRED_RANGE_FRACTION = 0.85;
+
+// ---------------------------------------------------------------------------
+// Coming alongside
+// ---------------------------------------------------------------------------
+
+// Two hulls in contact grind on each other. A crunch every COLLISION_INTERVAL rather than damage
+// every tick, because damageCell has a floor of one point per call and sixty calls a second would
+// saw a timber in half instantly -- and because a discrete crunch, with its own impact and its own
+// sound, is something a player can see happen.
+//
+// Scaled by how fast the two hulls are actually moving relative to each other, over BASE_SPEED. Two
+// ships settling together barely mark each other; two crossing at speed tear cells out.
+//
+// Measured by paired ablation at these values: a duel is untouched -- 0.1% of winners flip and the mean
+// battle moves from 14.33s to 14.28s -- because two ships orbit at their preferred range and rarely
+// touch at all. A four-way flips 5.8% and comes in 0.45s shorter, because four ships in one arena
+// crowd. That split is the reason to keep it: it is flavour in the duel the part table was tuned
+// around, and a real consideration in the melee, where sailing through a crowd should cost something.
+export const COLLISION_DAMAGE = 5;
+export const COLLISION_INTERVAL = 0.5;
 
 // ---------------------------------------------------------------------------
 // Gunnery
@@ -175,12 +262,34 @@ export const ROUNDS = [
 
 export const POINTS_TO_WIN = 3;
 
+// Slow motion over the killing blow, before the result screen. The authority waits this out too,
+// so a client is never cut off mid-explosion by a verdict that has already been decided.
+export const VERDICT_DELAY = 1.8;
+
+// A ship that has struck her colours goes under. Purely presentation -- the simulation took her out of
+// the fight the moment her helm went -- but it has to happen, because in a melee the survivors sail
+// straight over the wreck, and two hulls in the same water read as a bug rather than as a wreck being
+// passed. She fades into the sea colour rather than turning transparent: the deck plates are one shared
+// opaque material across every ship, so darkening toward the water is both cheaper than per-ship
+// transparency and a better picture than a ghost.
+export const SINK_TIME = 2.8;
+export const SINK_DROP = 2.4; // world units the hull settles by
+
 // Comeback money, as a fraction of the round's grant. A flat bonus is worth nothing by
 // round 5, which is how you get 3-0 sweeps.
 export const LOSER_BONUS_FRACTION = 0.45;
 
 export function loserBonus(roundIndex) {
   return Math.round(ROUNDS[roundIndex].scrap * LOSER_BONUS_FRACTION);
+}
+
+// Comeback money by where you came in, 0 for the winner and the full loser's bonus for last. With
+// two players this is exactly loserBonus and nothing else, so the duel's economy is untouched; with
+// four it spreads, because paying every one of three losers a full bonus would make winning a round
+// worth less than losing one.
+export function placeBonus(roundIndex, place, playerCount) {
+  if (place <= 0 || playerCount < 2) return 0;
+  return Math.round(loserBonus(roundIndex) * (place / (playerCount - 1)));
 }
 
 export const REROLL_COST = 2;

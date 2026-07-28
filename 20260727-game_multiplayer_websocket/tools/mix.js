@@ -91,6 +91,10 @@ const POLICIES = {
 };
 
 const names = Object.keys(ARCHETYPES);
+// argv[2] is the battle count. argv[3] pins the field size, so `node tools/mix.js 150 4` measures
+// nothing but four-ways -- the worst case for the queue, since a four-way throws about twice the
+// gunfire of a duel.
+const FORCE_SHIPS = process.argv[3] ? Math.max(2, Math.min(4, Number(process.argv[3]))) : null;
 const SEEDS = Number(process.argv[2] || 150);
 const FRAME = config.TICK;
 
@@ -109,9 +113,15 @@ let seconds = 0;
 
 for (let seed = 1; seed <= SEEDS; seed++) {
   const hullIndex = seed % 5;
+  // A four-way throws about twice the gunfire of a duel, which is exactly the case the queue and the
+  // duck exist for, so a third of the sample runs one.
+  const shipCount = FORCE_SHIPS ?? (seed % 3 === 0 ? 4 : 2);
   const designs = [
     buildFor(hullIndex, names[seed % names.length]),
     buildFor(hullIndex, names[(seed + 3) % names.length]),
+    ...(shipCount > 2
+      ? [buildFor(hullIndex, names[(seed + 1) % names.length]), buildFor(hullIndex, names[(seed + 5) % names.length])]
+      : []),
   ];
   const battle = battleMod.createBattle({
     designs,

@@ -56,7 +56,10 @@ export function playBattle(mods, designs, hullIndex, seed, opts = {}) {
     time: battle.time,
     reason: battle.reason,
     decisive: battle.time < config.BATTLE_CAP - 0.1,
-    struct: [ship.structureFraction(battle.ships[0]), ship.structureFraction(battle.ships[1])],
+    // One entry per seat, so a melee reads the same way a duel does.
+    struct: battle.ships.map((s) => ship.structureFraction(s)),
+    // Best first. Null unless the battle actually concluded, which is what the guard above allows.
+    placing: battle.placing,
   };
 }
 
@@ -85,12 +88,28 @@ function whyQuiet(bears, me, foe, now) {
 }
 
 // A battle watched rather than scored. See tools/watch.js for what each number means and why.
+//
+// Two, three or four ships. Every pairwise number -- par, range, revs -- is a mean over the
+// unordered pairs, and every per-ship number is a mean over the seats, so with two ships each one
+// reduces arithmetically to the single pair or the single opposed couple it used to be. That is not
+// a hope: `node tools/watch.js` and `node tools/balance.js` are byte-identical across the change.
 export function measureBattle(mods, designs, hullIndex, seed, opts = {}) {
   const { ship, config, gunnery } = mods;
   const { battle, bot } = start(mods, designs, hullIndex, seed, opts);
   const bears = gunnery.bears;
-  const [a, b] = battle.ships;
-  const edge = config.ARENA_RADIUS * 0.8;
+  const ships = battle.ships;
+  const n = ships.length;
+
+  // Every unordered pair, once, with its own bearing history: revs is about how far the pair has
+  // swung about each other, which is not a quantity a centroid can carry.
+  const pairs = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = ships[i];
+      const b = ships[j];
+      pairs.push({ a, b, last: Math.atan2(b.x - a.x, -(b.z - a.z)), turned: 0 });
+    }
+  }
 
   let ticks = 0;
   let dryTicks = 0;
@@ -103,9 +122,8 @@ export function measureBattle(mods, designs, hullIndex, seed, opts = {}) {
   let parSum = 0;
   let rangeSum = 0;
   let volleys = 0;
-  let turned = 0;
   let open = null;
-  let lastBearing = Math.atan2(b.x - a.x, -(b.z - a.z));
+  const live = [];
   const timeline = [];
 
   let guard = 0;
@@ -120,12 +138,16 @@ export function measureBattle(mods, designs, hullIndex, seed, opts = {}) {
     volleys += fired;
     if (open === null && fired > 0) open = battle.time;
 
-    const whyA = whyQuiet(bears, a, b, battle.time);
-    if (whyA === 'far') farTicks++;
-    else if (whyA === 'arc') arcTicks++;
-    const whyB = whyQuiet(bears, b, a, battle.time);
-    if (whyB === 'far') farTicks++;
-    else if (whyB === 'arc') arcTicks++;
+    // Why each ship is quiet, judged against the ship it is actually fighting. A melee ship's guns
+    // can bear on someone it is not steering at, which counts: what is being measured is whether
+    // the battery has anything to do, not whether it is obeying orders.
+    for (let i = 0; i < n; i++) {
+      const foe = ships[i].target;
+      if (!foe) continue;
+      const why = whyQuiet(bears, ships[i], foe, battle.time);
+      if (why === 'far') farTicks++;
+      else if (why === 'arc') arcTicks++;
+    }
 
     // Dead time: nothing in the air and nothing leaving a barrel.
     if (battle.projectiles.length === 0 && fired === 0) {
@@ -136,45 +158,89 @@ export function measureBattle(mods, designs, hullIndex, seed, opts = {}) {
       currentGap = 0;
     }
 
-    const mx = (a.x + b.x) / 2;
-    const mz = (a.z + b.z) / 2;
-    const drift = Math.hypot(mx, mz);
-    driftSum += drift / config.ARENA_RADIUS;
-    if (Math.hypot(a.x, a.z) > edge || Math.hypot(b.x, b.z) > edge) edgeTicks++;
-    parSum += a.cos * b.cos + a.sin * b.sin; // cos of the angle between the two headings
-    const range = Math.hypot(b.x - a.x, b.z - a.z);
+    // Where the fight is happening: whoever is still in it. A struck ship stops sailing where she
+    // died, so leaving her in drags the centroid and the mean range toward a hulk. Below two afloat
+    // there is no fight left to locate -- the tick the battle ends on -- so the whole field stands
+    // in, and that is also what keeps these numbers exactly what a duel used to report.
+    live.length = 0;
+    for (let i = 0; i < n; i++) if (!ships[i].out) live.push(ships[i]);
+    if (live.length < 2) {
+      live.length = 0;
+      for (let i = 0; i < n; i++) live.push(ships[i]);
+    }
+
+    let cx = 0;
+    let cz = 0;
+    for (let i = 0; i < live.length; i++) {
+      cx += live[i].x;
+      cz += live[i].z;
+    }
+    const drift = Math.hypot(cx / live.length, cz / live.length);
+    driftSum += drift / battle.arenaRadius;
+
+    // The arena hauls a hulk back as readily as a fighting ship, and either one out here is the
+    // camera's problem, so this counts every seat.
+    for (let i = 0; i < n; i++) {
+      if (Math.hypot(ships[i].x, ships[i].z) > battle.edge) {
+        edgeTicks++;
+        break;
+      }
+    }
+
+    let parTick = 0;
+    let rangeTick = 0;
+    let livePairs = 0;
+    for (let i = 0; i < live.length; i++) {
+      for (let j = i + 1; j < live.length; j++) {
+        const a = live[i];
+        const b = live[j];
+        parTick += a.cos * b.cos + a.sin * b.sin; // cos of the angle between the two headings
+        rangeTick += Math.hypot(b.x - a.x, b.z - a.z);
+        livePairs++;
+      }
+    }
+    const par = parTick / livePairs;
+    const range = rangeTick / livePairs;
+    parSum += par;
     rangeSum += range;
 
-    const bearing = Math.atan2(b.x - a.x, -(b.z - a.z));
-    turned += Math.abs(wrap(bearing - lastBearing));
-    lastBearing = bearing;
+    for (let i = 0; i < pairs.length; i++) {
+      const p = pairs[i];
+      const bearing = Math.atan2(p.b.x - p.a.x, -(p.b.z - p.a.z));
+      p.turned += Math.abs(wrap(bearing - p.last));
+      p.last = bearing;
+    }
 
     if (opts.trace && ticks % 30 === 0) {
       timeline.push(
         `    ${battle.time.toFixed(1)}s  range ${range.toFixed(0).padStart(3)}  ` +
           `midpoint ${drift.toFixed(0).padStart(3)}  ` +
-          `par ${(a.cos * b.cos + a.sin * b.sin).toFixed(2).padStart(5)}  ` +
+          `par ${par.toFixed(2).padStart(5)}  ` +
           `shot ${String(battle.projectiles.length).padStart(2)}  ` +
-          `struct ${pct(ship.structureFraction(a))}/${pct(ship.structureFraction(b))}`,
+          `struct ${ships.map((s) => pct(ship.structureFraction(s))).join('/')}`,
       );
     }
   }
+
+  let turned = 0;
+  for (let i = 0; i < pairs.length; i++) turned += pairs[i].turned;
 
   return {
     time: battle.time,
     winner: battle.winner,
     reason: battle.reason,
     decisive: battle.time < config.BATTLE_CAP - 0.1,
+    placing: battle.placing,
     open: open ?? battle.time,
     dry: dryTicks / ticks,
-    far: farTicks / (ticks * 2),
-    arc: arcTicks / (ticks * 2),
+    far: farTicks / (ticks * n),
+    arc: arcTicks / (ticks * n),
     gap,
     edge: edgeTicks / ticks,
     drift: driftSum / ticks,
     par: parSum / ticks,
     range: rangeSum / ticks,
-    revs: turned / TAU,
+    revs: turned / pairs.length / TAU,
     volleys,
     timeline,
   };

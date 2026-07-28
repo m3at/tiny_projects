@@ -1,9 +1,13 @@
 # Broadside
 
-Two players. Age of sail. You never steer the ship — you build it, then watch it fight.
+Two to four players. Age of sail. You never steer the ship — you build it, then watch it fight.
 
 Casual and fast. Skill lives in the build phase, luck lives in what you get offered and
 where the shot lands.
+
+Two players is a duel and the game the whole part table was tuned around. Three or four is a melee,
+which is the same game with one rule added — everyone fires at whoever is nearest and bearing — and it
+changes what a good ship looks like without changing what the parts do.
 
 ## Reference stack
 
@@ -18,10 +22,14 @@ First to 3 round wins. Five rounds maximum.
 ```
 ROUND N
   wind is rolled and shown
-  BUILD   player 1, then player 2 (hot-seat), timed
-  BATTLE  both ships sail themselves, overtime from 20s, hard stop at 40s
+  BUILD   everyone at once online, one at a time on a shared keyboard. Timed either way
+  BATTLE  the ships sail themselves, overtime from 20s, hard stop at 40s
   RESULT  point awarded, damage kept
 ```
+
+Online, all the build phases run together against one deadline, which is both faster and better: a
+duel where you take turns tells the second player how long the first one spent. On one keyboard they
+have to be sequential, so they are.
 
 Your ship persists across rounds, damage included. Each round you move into a bigger hull
 and carry your parts with you. So round 1 is a blank slate and rounds 2-5 are triage:
@@ -40,6 +48,10 @@ allowance leaves ships holier every round instead of grander.
 
 The loser of a round gets 45% of that round's grant as comeback money. A flat bonus is worth
 nothing by round 5, which is how you got 3-0 sweeps. Unspent scrap carries over.
+
+With more than two players it is paid by where you came in rather than by not winning: last place gets
+the full bonus and the places between get a fraction of it. Paying three losers a full bonus each
+would make winning a round worth less than losing one. At two players it is exactly the old rule.
 
 That is as far as catch-up goes, and it is enough. Sweeps run at about 17% of matches, and two
 evenly matched players in a first-to-three produce a 3-0 a quarter of the time by chance alone —
@@ -205,7 +217,11 @@ Because crew man the guns, grape silences a broadside without scratching the shi
 spend the battle reading the enemy: their gun deck is untouched but they are down to two
 crew quarters, stay on grape and their guns go quiet. Switching costs a reload.
 
-Player 1 presses A, player 2 presses L.
+Player 1 presses A, player 2 presses L; the third and fourth seats are Q and P. Online you only have
+one ship and only one of those keys does anything.
+
+In a melee the crews answer to the ship they are actually fighting, which is a real decision the duel
+does not have: the enemy you are pounding is not necessarily the one whose crew is thin.
 
 ### Reading the ship
 
@@ -225,6 +241,28 @@ Ownership is carried by the hull, not the cargo: both ships mount the same parts
 colours, so each sits on a flat ellipse in its player colour. A panel flashes when its ship is
 hit, since the structure bar barely moves on a single ball.
 
+### Coming alongside
+
+Hulls are ellipses and cannot pass through each other, and how much room two of them need depends on
+which way they are pointing: bow to bow, two ships of the line need twice the space they need beam to
+beam. Getting that wrong was visible rather than unfair -- hulls overlapped by up to a third of a
+frigate's length, and a ship of the line spent a fifth of every duel inside its opponent.
+
+Contact costs both ships a crunch in the cell nearest where they touched, scaled by how fast they were
+moving relative to each other, twice a second while it lasts. Two ships settling together barely mark
+the paint; two crossing at speed tear cells out, and rigging comes down.
+
+The measured shape of it is the reason it is in: a duel is untouched, 0.1% of winners and a twentieth of
+a second, because two ships orbit at the range their guns want and rarely touch at all. A four-way
+flips 5.8% of winners and finishes half a second sooner, because four ships in one arena crowd each
+other. So sailing through a melee costs something, ramming is available to anyone who wants to try it,
+and none of it disturbs the duel the parts were priced against.
+
+A ship that has struck her colours is out of the fight and stays on the water, settling and fading over
+about three seconds. The survivors sail straight over her, which is the right rule -- she is a wreck, not
+a wall -- and the only reason the sinking exists is that without it two hulls share the same water and
+it reads as a bug.
+
 ### Chaos rules
 
 Two rules do most of the storytelling, and neither is there for balance.
@@ -243,6 +281,38 @@ many of its guns are still firing, how many hands are left, whether the powder i
 masts came down. A log says what happened; that line says which decision was wrong. "One of six
 guns firing, two of eighteen hands" tells a player their crew was too thin far more directly than a
 structure percentage does.
+
+### A melee
+
+Three or four ships is the same battle with target selection added, and nothing else changed about
+what the parts do.
+
+- Ships start evenly spaced on a ring, each pointing at the middle, in an arena that grows with the
+  field. Nobody starts with a free broadside on a ship that cannot answer.
+- Each ship fights the nearest enemy still afloat, revisited every 0.6s and only given up for a rival
+  clearly closer — otherwise a ship between two enemies swaps target every few ticks and sails down
+  the middle with its guns bearing on nothing. Each gun independently fires at the nearest enemy in
+  range and bearing, which is the only sensible reading of a gun crew firing at what they can see.
+- A ship whose helm goes strikes her colours and leaves the fight, staying on the water as a hulk.
+  Shot already on its way to her falls in the water rather than pounding a wreck.
+- The last ship afloat takes the round.
+- Incoming damage is scaled *up* with the size of the field, which is the opposite of the obvious
+  guess. A duel ends when one ship sinks and a four-way when three do, so the extra guns have three
+  times as much hull to get through: uncorrected, a four-way ran 39 seconds and only a third of them
+  reached a verdict at all. At the tuned values a three-way settles in 16.6s and a four-way in 17.1s
+  against a duel's 14.2s.
+
+The interesting part is that the field size changes what to build, without any part changing. Measured
+across thousands of random builds: as the field grows from two ships to four, the gun deck gains nine
+points of win rate and the swivel loses nine, because a ship is out of range of something 48% of the
+time in a four-way against 24% in a duel. Reach and the hands to keep a long battery manned are worth
+more when there are three ships to answer; a carronade at 24 units and a swivel at 26 are worth less.
+
+That is a different best gun per field size, which is the same kind of fact as a different best gun per
+hull size, and it is the most interesting thing the melee adds. It is also easy to misread: fighting
+whole pure archetypes against each other says the carronade collapses to 0.30 in a three-way, and
+sampling random legal builds says it goes from 48% to 43% — weak, not a trap. The pure grid is bimodal
+because damage compounds, so it exaggerates in both directions.
 
 ### Ending a round
 
@@ -337,17 +407,55 @@ six sizes and no others: a slab serif for every heading, label and number, a hum
 running text, and a monospace for part glyphs only, since those are the characters the deck
 itself draws.
 
+## Networking
+
+The simulation was written to be networked before there was any networking: seeded rng, whole 60Hz
+ticks, no `Math.random`, no renderer. That paid off exactly as intended — the transport relays
+ammunition toggles rather than positions — and it also had one hole in it that only measurement found.
+
+The shape:
+
+- One authority per match. It owns the phases, the purses, the offers, the validation and the battle
+  that counts. It runs on the server for an online game and inside the page for a local one, so a game
+  on one keyboard is the networked game with the wire taken out rather than a second implementation of
+  it. That is the decision most of the rest depends on.
+- The battle is sent once, as a seed, the designs, a wind bearing and a start time. Every client
+  rebuilds it and runs it. Each ammunition toggle is relayed stamped with a tick number.
+- Clients play a fraction of a second behind their estimate of the server's tick, so an input for a
+  tick has always arrived before that tick is simulated. That is the whole latency strategy, and it
+  works because the only input in the game already costs a 1.3s reload — nobody can feel 100ms on it.
+- The server states a checksum twice a second. A client that disagrees rebuilds the battle from the
+  seed and replays the whole input stream into it, which costs a few milliseconds. The authority's
+  verdict is what the result screen shows, so a divergence is cosmetic and never a lost round.
+- The client is not trusted with any of it. Every placement, removal, repair and reroll is a command
+  the authority validates against its own copy; the client applies the same rules first so a click
+  lands on the deck immediately, and a disagreement replaces its copy wholesale.
+- No seed derived from the match seed is ever sent to a client, because the match seed decides which
+  beam the battle turns to, and a player who knows that in advance builds a sheltered flank and wins.
+  Offers are drawn by the authority; the battle seed is published when the guns start.
+
+The hole: a seeded simulation with no `Math.random` is still not deterministic across machines, because
+ECMA-262 does not specify `sin`, `cos` or `atan2` exactly. V8 and Safari's JavaScriptCore disagree on
+4% of sine arguments and 21% of arc tangents, and that made two thirds of sampled ship states differ
+between the two within one second of a battle. No winner ever flipped — but a desync detector that
+fires constantly detects nothing. Rounding every transcendental result to float32 collapses the
+disagreement, and the two engines are now bit-identical over a fixed grid of battles. `sqrt` needed
+nothing: IEEE 754 requires it to be correctly rounded, and only recommends it for the rest.
+
 ## Running it
 
-No build step and no dependencies. three.js is vendored in `vendor/`.
+No build step and no dependencies, including the server and its WebSocket implementation. three.js is
+vendored in `vendor/`.
 
 ```
-./tools/dev.sh                 static server on 8123 plus headless Chrome for screenshots
-./tools/dev.sh stop            tear both down
+node server/main.js 8123        files and rooms on one port
+./tools/dev.sh                  that, plus the headless Chrome the tools drive
+./tools/dev.sh stop             tear both down
 open http://127.0.0.1:8123/index.html
 ```
 
-Any static server works; the game needs http for ES modules.
+A plain static server is enough to play locally; online play needs `server/main.js`, which is the
+WebSocket host as well as the file server. The game needs http either way, for ES modules.
 
 ### Dev harness
 
@@ -365,6 +473,11 @@ clicking through two build phases per round.
 | `&stop=2` | autoplay round 1, then hold round 2's build phase open, purse unspent |
 | `&hold=1` | autoplay, but stop on each result screen |
 | `&loop=1` | keep starting fresh matches (off by default) |
+| `&players=4` | how many ships; `?dev=a,b,c` sets it by itself |
+| `&bots=2` | fill the other seats with bots |
+| `&net=1` | open an online room on this origin instead of playing locally |
+| `&net=1&room=ABCD` | join one; add `&watch=1` to spectate |
+| `&name=Anne` | the name the other captains see |
 
 Archetypes: `brawler`, `massed`, `sniper`, `harasser`, `crusher`, `mixed`. Autoplay stops after one
 match — looping for ever pins a CPU core, which is exactly what a forgotten headless tab once did.
@@ -468,4 +581,12 @@ magnitude of headroom over the one battle it actually needs.
   which decision was wrong.
 - The engaged beam being drawn at random is a legible gamble only if the player is told the odds.
   Right now they are not told at all.
-- No networking yet. The sim is ready; `main.js` is the part that changes.
+- The gun deck wins too much in a melee: 64% against 55% in a duel, and 72% on a ship of the line.
+  That is past the point where a part wins games on its own. It is not caused by any of the
+  per-ship-count constants — flattening them moves it two points at most — so the only fix is the part
+  table, which would cost the duel where it is fine. Left alone, and flagged.
+- No way into a spectator seat from the interface, and no per-socket rate limit on build commands.
+  The server supports the first and refuses illegal commands, so the second is noise rather than
+  cheating.
+- A four-way runs 17s because it has to sink three ships. Ending the round on the first strike instead
+  would bring it to a duel's length without paying for it in empty air; it has not been measured.

@@ -123,6 +123,8 @@ for (const hullIndex of hulls) {
     const r = runOne(hullIndex, 'brawler', 'sniper', 12345);
     console.log(`\n  sample battle: ${r.reason} at ${r.time.toFixed(1)}s`);
     console.log(`  structure left: ${pct(r.struct[0])} / ${pct(r.struct[1])}`);
-    for (const e of r.log) console.log(`    ${e.t.toFixed(1)}s  ${e.text}`);
+    // playBattle returns the battle, not its log; reading r.log gave undefined and threw here,
+    // which nothing noticed because verbose mode is only ever run by hand.
+    for (const e of r.battle.log) console.log(`    ${e.t.toFixed(1)}s  ${e.text}`);
   }
 }

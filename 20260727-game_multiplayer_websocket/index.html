@@ -15,13 +15,9 @@
 
     <!-- Top bar: always visible once a match is running -->
     <header id="topbar" class="hidden">
-      <div class="score">
-        <span class="tag p1">Player 1</span>
-        <strong id="score-p1">0</strong>
-        <span class="dash">-</span>
-        <strong id="score-p2">0</strong>
-        <span class="tag p2">Player 2</span>
-      </div>
+      <!-- Filled in by ui/hud.js once the roster is known: two players read as a duel score,
+           three or four as a list. -->
+      <div class="score" id="score"></div>
       <div class="round-info">
         <div id="round-label">Round 1</div>
         <div id="hull-label" class="muted">Sloop</div>
@@ -57,8 +53,8 @@
         <div id="readout"></div>
         <div id="warnings"></div>
         <div id="enemy-intel" class="hidden">
-          <h3 class="label">Enemy, last seen</h3>
-          <canvas id="enemy-canvas" width="180" height="240"></canvas>
+          <h3 class="label">Last seen</h3>
+          <div id="enemy-list"></div>
         </div>
       </aside>
 
@@ -69,26 +65,10 @@
 
     <!-- Battle phase -->
     <section id="battle-ui" class="hidden">
-      <div class="ship-status p1 framed" id="ship-p1">
-        <div class="name">Player 1</div>
-        <div class="bar"><div id="hp-p1" class="fill"></div></div>
-        <div class="stats"><span id="crew-p1"></span><span id="guns-p1"></span></div>
-        <div class="ammo">
-          <button class="ammo-btn active" data-player="0" data-ammo="round">Round shot</button>
-          <button class="ammo-btn" data-player="0" data-ammo="grape">Grape</button>
-          <div class="key-hint">key: A</div>
-        </div>
-      </div>
-      <div class="ship-status p2 framed" id="ship-p2">
-        <div class="name">Player 2</div>
-        <div class="bar"><div id="hp-p2" class="fill"></div></div>
-        <div class="stats"><span id="crew-p2"></span><span id="guns-p2"></span></div>
-        <div class="ammo">
-          <button class="ammo-btn active" data-player="1" data-ammo="round">Round shot</button>
-          <button class="ammo-btn" data-player="1" data-ammo="grape">Grape</button>
-          <div class="key-hint">key: L</div>
-        </div>
-      </div>
+      <!-- One panel per ship, built by ui/hud.js. Seats alternate sides so a duel keeps the
+           left-against-right reading it has always had and a four-way stacks two to a side. -->
+      <div id="panels-left" class="panel-col left"></div>
+      <div id="panels-right" class="panel-col right"></div>
       <div id="battle-log" class="battle-log"></div>
     </section>
 
@@ -98,9 +78,17 @@
         <h1 id="ov-title">Broadside</h1>
         <p id="ov-body"></p>
         <div id="ov-log" class="ov-log"></div>
-        <button id="ov-btn" class="primary">Start</button>
+        <!-- Anything an overlay needs beyond prose: the menu, the lobby roster, a join code. -->
+        <div id="ov-extra"></div>
+        <div class="ov-buttons">
+          <button id="ov-alt" class="tool hidden"></button>
+          <button id="ov-btn" class="primary">Start</button>
+        </div>
       </div>
     </div>
+
+    <!-- Wire status. Empty and invisible in a local game. -->
+    <div id="netbar" class="netbar hidden"></div>
 
     <script type="module" src="./src/main.js"></script>
   </body>

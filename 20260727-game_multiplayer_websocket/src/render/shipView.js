@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { PARTS } from '../data/parts.js';
 import { HULLS, cellKey } from '../data/hulls.js';
-import { CELL } from '../config.js';
+import { CELL, SINK_DROP } from '../config.js';
 import { PLAYER, SEA, HOLE, FX } from '../theme.js';
 import { glyphTexture } from './glyphs.js';
 import { HELM_KEY } from '../sim/ship.js';
@@ -206,7 +206,10 @@ export function createShipView({ design, hullIndex, player, interactive = false 
     pos.set(cell.dx * CELL, DECK_TOP + (height * sy) / 2 - (fall ? 0.6 : 0), cell.dz * CELL);
     mat.compose(pos, quat, scale.set(1, sy, 1));
     layer.box.setMatrixAt(cell.slot, mat);
-    layer.box.setColorAt(cell.slot, tint.setHex(PARTS[cell.partId].color).multiplyScalar(0.35 + 0.65 * frac));
+    layer.box.setColorAt(
+      cell.slot,
+      sinkTint(tint.setHex(PARTS[cell.partId].color).multiplyScalar(0.35 + 0.65 * frac)),
+    );
 
     pos.y = DECK_TOP + height * sy + 0.02 - (fall ? 0.6 : 0);
     mat.compose(pos, quat, scale.set(1, 1, 1));
@@ -308,7 +311,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
   let highlighted = null;
 
   function setDeckColour(cell, hex) {
-    deck.setColorAt(cell.deckIndex, tint.setHex(hex));
+    deck.setColorAt(cell.deckIndex, sinkTint(tint.setHex(hex)));
     deck.instanceColor.needsUpdate = true;
   }
 
@@ -383,7 +386,10 @@ export function createShipView({ design, hullIndex, player, interactive = false 
   const falling = [];
 
   function syncFromBattle(ship) {
-    group.position.set(ship.x, 0, ship.z);
+    // y comes from how far under she is, not from zero: this runs every frame and setSunk does not,
+    // so writing a flat zero here quietly undid the whole descent -- the ship faded on the spot
+    // without ever settling.
+    group.position.set(ship.x, -SINK_DROP * sunk, ship.z);
     group.rotation.y = -ship.heading;
 
     for (const cell of ship.cells) {
@@ -404,6 +410,51 @@ export function createShipView({ design, hullIndex, player, interactive = false 
       }
     }
     if (!ship.helm.alive) flag.visible = false;
+  }
+
+  // ---- going under ----
+  //
+  // Driven from outside, because how far under she is comes from the battle clock and this view does
+  // not have one. Everything her own materials own fades; everything on a shared material is hidden
+  // instead, since fading one ship's shared material would fade the rest of the fleet with it.
+  //
+  // A colour rewrite is O(cells) and would be wasteful every frame for two and a half seconds, so it
+  // only happens when the amount has actually moved -- which for a fade nobody is looking at closely
+  // is about fifty times over the whole descent.
+  let sunk = 0;
+  let sunkDrawn = -1;
+  const seaTint = new THREE.Color(SEA.water);
+
+  function sinkTint(colour) {
+    return sunk > 0 ? colour.lerp(seaTint, sunk * 0.92) : colour;
+  }
+
+  function setSunk(amount) {
+    const next = Math.max(0, Math.min(1, amount));
+    if (next === sunk) return;
+    sunk = next;
+    group.position.y = -SINK_DROP * sunk;
+    silhouette.material.opacity = 0.22 * (1 - sunk);
+    for (const mesh of [prow, flag]) {
+      mesh.material.transparent = true;
+      mesh.material.opacity = 1 - sunk;
+    }
+    // sparMaterial is every ship's masts, so the flagpole cannot fade. It slips under instead, and
+    // the part glyphs go with it: a bright white letter on a hull the colour of the sea reads as a
+    // mistake rather than as a wreck.
+    pole.visible = sunk < 0.8;
+    // Once she is the colour of the water there is nothing left to look at, and an invisible wreck
+    // still costs a draw call per part layer.
+    group.visible = sunk < 0.995;
+    for (const layer of layers.values()) {
+      layer.glyph.visible = layer.count > 0 && sunk < 0.4;
+    }
+    if (Math.abs(sunk - sunkDrawn) < 0.02 && sunk < 1) return;
+    sunkDrawn = sunk;
+    for (const cell of cells.values()) {
+      setDeckColour(cell, dead.has(cell.key) ? HOLE : cell.base);
+      if (cell.slot >= 0 && cell.partId) writeCell(cell, cell.soundness);
+    }
   }
 
   function animate(dt) {
@@ -432,6 +483,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
     setGhost,
     setArcPreview,
     syncFromBattle,
+    setSunk,
     animate,
     dispose() {
       clearArc();

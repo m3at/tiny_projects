@@ -1,54 +1,43 @@
-// Build phase. Click a card, click a cell. Also handles repair, removal and the reroll.
+// The build phase, as an interface. Click a card, click a cell.
+//
+// It no longer changes anything itself. Every action is a command to the authority -- place, remove,
+// refit, reroll, lock in -- which applies the rules in shipyard.js and answers with the purse. The
+// client applies the same rules to the same command first so the deck responds to the click rather
+// than to the round trip, and if the authority disagrees it sends the design back and this redraws.
+// So there is one implementation of what a part costs and where it may go, and it is not this file.
+//
+// The countdown is the authority's too. A clock the player can see and a deadline the server
+// enforces have to be the same clock, or the last second of a build phase is a lie.
 
 import * as THREE from 'three';
-import { PARTS, BUYABLE, repairCost } from '../data/parts.js';
-import { ROUNDS, REROLL_COST, OFFER_SIZE } from '../config.js';
-import { designStats, designWarnings, placementError } from '../sim/ship.js';
-import { $, drawSchematic, setVisible } from './hud.js';
-import { attachFillButton, devFill } from '../dev.js';
+import { PARTS } from '../data/parts.js';
+import { REROLL_COST } from '../config.js';
+import { designStats, designWarnings } from '../sim/ship.js';
+import { $, drawIntel } from './hud.js';
+import { attachFillButton, devFillCommands } from '../dev.js';
 import * as audio from '../audio/play.js';
 
-// The offer is a set of part *types*, and you may buy as many of each as you can afford.
-// Filling 38 cells one card at a time would be tedious, and the interesting luck is in
-// which types you are shown, not how many.
-function makeOffer(rng, design, hullIndex) {
-  const stats = designStats(design, hullIndex);
-  // Guarantees that stop a hand being unplayable: something cheap to plug holes with,
-  // powder if you have none, and hands if you have none.
-  const guaranteed = ['timber'];
-  if (stats.magazines === 0) guaranteed.push('magazine');
-  if (stats.crewSupply === 0) guaranteed.push('crew');
-
-  const pool = BUYABLE.filter((id) => !guaranteed.includes(id));
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = rng.int(0, i);
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  const picked = pool.slice(0, Math.max(0, OFFER_SIZE - guaranteed.length));
-  const all = [...guaranteed, ...picked];
-  return BUYABLE.filter((id) => all.includes(id));
-}
-
-export function startBuild({ sceneCtl, view, design, hullIndex, player, roundIndex, scrap, rng, enemy, onLockIn }) {
+export function startBuild({ sceneCtl, view, client, seat, names }) {
   let selected = null; // part id, or 'remove'
-  let offer = makeOffer(rng, design, hullIndex);
-  const placedThisPhase = new Set();
-  let timeLeft = ROUNDS[roundIndex].buildTime;
   let done = false;
   let hoverKey = null;
 
-  $('build-who').textContent = `Player ${player + 1}`;
-  $('build-who').style.color = player === 0 ? 'var(--p1)' : 'var(--p2)';
+  const yard = () => client.yard;
+  const design = () => client.yard.design;
+  const hullIndex = client.state.hullIndex;
 
-  setVisible($('enemy-intel'), !!enemy);
-  if (enemy) drawSchematic($('enemy-canvas'), enemy.design, enemy.hullIndex);
+  $('build-who').textContent = names[seat] ?? `Player ${seat + 1}`;
+  $('build-who').className = `p${seat + 1}`;
+
+  drawIntel(client.state.intel, names);
 
   // ---------- rendering the panels ----------
 
   function renderOffer() {
     const el = $('offer');
     el.innerHTML = '';
-    for (const id of offer) {
+    const scrap = yard().scrap;
+    for (const id of client.state.offer) {
       const part = PARTS[id];
       const card = document.createElement('div');
       card.className = 'card-part';
@@ -71,22 +60,16 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
 
     // Refit repairs the whole ship in one click. Hunting damaged cells one at a time was
     // the same decision wrapped in busywork.
-    const damage = damagedParts();
-    const total = damage.reduce((s, [, slot]) => s + repairCost(slot.id), 0);
+    const total = yard().refitCost();
+    const damage = yard().damaged();
     const refit = $('btn-refit');
     refit.innerHTML = total ? `Refit <span class="muted">${total}</span>` : 'Refit';
-    refit.disabled = total === 0 || scrap < repairCost(damage[0][1].id);
+    refit.disabled = total === 0;
     refit.title = total ? `Repair ${damage.length} damaged part(s)` : 'Nothing is damaged';
   }
 
-  function damagedParts() {
-    return Object.entries(design.parts)
-      .filter(([, s]) => s.hp < PARTS[s.id].hp)
-      .sort((a, b) => a[1].hp / PARTS[a[1].id].hp - b[1].hp / PARTS[b[1].id].hp);
-  }
-
   function renderReadout() {
-    const s = designStats(design, hullIndex);
+    const s = designStats(design(), hullIndex);
     const holes = s.cellsTotal - s.cellsUsed;
     // Open holes lead: shot passes straight through them, which is the rule that decides
     // most battles, and a ratio of filled cells buried it.
@@ -106,7 +89,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
           `<div class="stat-row${bad ? ' bad' : ''}"><span class="muted">${k}</span><span class="v">${v}</span></div>`,
       )
       .join('');
-    $('warnings').innerHTML = designWarnings(design, hullIndex)
+    $('warnings').innerHTML = designWarnings(design(), hullIndex)
       .map((w) => `<div class="warn">${w}</div>`)
       .join('');
   }
@@ -130,7 +113,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
   // Does not touch the hint: callers own that, otherwise a re-render eats the feedback
   // message that prompted it.
   function renderAll() {
-    $('scrap-value').textContent = scrap;
+    $('scrap-value').textContent = yard().scrap;
     renderOffer();
     renderReadout();
     view.refresh();
@@ -176,39 +159,29 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     hoverKey = key;
     const partId = PARTS[selected] ? selected : null;
     view.setGhost(key, partId);
-    view.setArcPreview(key, key && !design.parts[key] ? partId : null);
+    view.setArcPreview(key, key && !design().parts[key] ? partId : null);
   }
 
   function act(key) {
-    const slot = design.parts[key];
-
     if (selected === 'remove') {
-      if (!slot) return deny('Nothing there to remove.');
-      if (PARTS[slot.id].fixed) return deny('The helm stays where it is.');
+      const res = client.remove(key);
+      if (!res.ok) return deny(res.why);
       audio.ui('place');
-      delete design.parts[key];
-      if (placedThisPhase.has(key)) {
-        scrap += PARTS[slot.id].cost;
-        placedThisPhase.delete(key);
-        setHint(`Removed, ${PARTS[slot.id].cost} scrap back.`);
-      } else {
-        setHint('Broken up for nothing. It was already paid for.');
-      }
+      setHint(
+        res.refund > 0
+          ? `Removed, ${res.refund} scrap back.`
+          : 'Broken up for nothing. It was already paid for.',
+      );
       renderAll();
       return;
     }
 
     if (!selected) return deny('Pick a part first.');
 
-    const part = PARTS[selected];
-    if (part.cost > scrap) return deny(`Not enough scrap for a ${part.name.toLowerCase()}.`);
-    const err = placementError(design, hullIndex, ...key.split(',').map(Number), selected);
-    if (err) return deny(err);
+    const res = client.place(key, selected);
+    if (!res.ok) return deny(res.why);
 
     audio.ui('place');
-    design.parts[key] = { id: selected, hp: part.hp };
-    placedThisPhase.add(key);
-    scrap -= part.cost;
     renderAllWithHint();
     // Keep the part selected so filling a flank is a row of clicks, not a row of round trips.
     view.setGhost(key, selected);
@@ -239,13 +212,24 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
   canvas.addEventListener('click', onClick, on);
   canvas.addEventListener('contextmenu', onContext, on);
 
+  // Every handler below states its own feedback *before* sending the command, never after.
+  //
+  // In a local game the authority is in this page, so a command runs to completion inside the call:
+  // by the time client.lock() returns, the next captain's build phase has already been set up. Code
+  // written in the obvious order -- send, then update the panel -- therefore lands on the *next*
+  // phase's panel. That cost an afternoon: autoplay locked in the first captain and then disabled the
+  // second captain's lock button, so every hot-seat build phase ran to its full forty seconds and the
+  // room had to time it out. Nothing about it is visible over a socket, where the reply is a round
+  // trip away, which is exactly what makes it worth a comment.
   $('btn-reroll').onclick = () => {
-    if (scrap < REROLL_COST) return;
+    if (yard().scrap < REROLL_COST) return;
     audio.ui('press');
-    scrap -= REROLL_COST;
-    offer = makeOffer(rng, design, hullIndex);
-    renderAllWithHint();
+    setHint('Rerolling...');
+    // The new hand is drawn by the authority: the seed that draws it is the same seed that decides
+    // which beam the battle turns to, so a client is never given it.
+    client.reroll();
   };
+
   $('btn-scrap').onclick = () => {
     audio.ui('press');
     selected = selected === 'remove' ? null : 'remove';
@@ -254,56 +238,49 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     view.setArcPreview(null, null);
   };
 
-  // Worst damage first, so a partial purse still buys back the most broken parts.
   $('btn-refit').onclick = () => {
     audio.ui('press');
-    let repaired = 0;
-    for (const [, slot] of damagedParts()) {
-      const cost = repairCost(slot.id);
-      if (scrap < cost) break;
-      scrap -= cost;
-      slot.hp = PARTS[slot.id].hp;
-      repaired++;
-    }
-    setHint(repaired ? `Refitted ${repaired} part(s).` : 'Not enough scrap to repair anything.');
+    const res = client.refit();
+    if (!res.ok) return deny(res.why);
+    setHint(`Refitted ${res.repaired} part(s).`);
     renderAll();
   };
 
-  function finish() {
-    if (done) return;
-    done = true;
-    listeners.abort();
-    view.setGhost(null, null);
-    view.setArcPreview(null, null);
-    onLockIn(scrap);
-  }
-
   // The commit gets the one rising three-note sound in the game. On the click only: the countdown
-  // running out calls finish() too, and confirming there would claim a decision nobody made.
+  // running out locks in as well, and confirming there would claim a decision nobody made.
   $('btn-lock').onclick = () => {
-    if (!done) audio.ui('confirm');
-    finish();
+    if (done) return;
+    audio.ui('confirm');
+    setHint('Locked in. Waiting for the others.');
+    $('btn-lock').disabled = true;
+    client.lock();
   };
 
   attachFillButton(document.querySelector('#build-ui .tools'), () => {
-    scrap = devFill(design, hullIndex, scrap);
+    for (const [key, part] of devFillCommands(design(), hullIndex, yard().scrap, client.state.offer)) {
+      client.place(key, part);
+    }
     renderAllWithHint();
   });
 
   renderAllWithHint();
+  $('btn-lock').disabled = false;
 
   return {
-    update(dt) {
+    // The authority corrected us, or answered a reroll. Redraw from whatever it says is true.
+    refresh(reset) {
       if (done) return;
-      timeLeft -= dt;
-      if (timeLeft <= 0) finish();
+      renderAll();
+      if (reset) setHint('The harbour master disagreed. Your ship is as shown.');
     },
-    get timeLeft() {
-      return timeLeft;
+    deny(why) {
+      if (!done) deny(why);
     },
     destroy() {
       done = true;
       listeners.abort();
+      view.setGhost(null, null);
+      view.setArcPreview(null, null);
     },
   };
 }

@@ -175,6 +175,12 @@ export function createScene(canvas) {
       seaU.uWind.value.set(Math.sin(w), -Math.cos(w));
     },
 
+    // The arena grows with the number of ships in it, and the boundary is drawn by the sea shader
+    // rather than by a mesh, so moving it is a uniform.
+    setArenaRadius(radius) {
+      seaU.uRing.value.set(radius - 0.45, 0.45);
+    },
+
     // Ease toward a framing rather than snapping, so the battle camera glides.
     frame(cx, cz, size, snap = false) {
       if (snap) {

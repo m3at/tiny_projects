@@ -26,7 +26,35 @@ export async function attach() {
     console.error('no page target on port 9222; run ./tools/dev.sh first');
     process.exit(1);
   }
+  return connect(target);
+}
 
+// A second, third and fourth browser, for anything that needs more than one player. Each tab is a
+// separate page with its own storage and its own socket, which is what makes it a real second client
+// rather than a second view of the first one.
+//
+// Chrome's /json/new needs PUT and rejects GET, which is a change from older versions and the reason
+// this is one line rather than a fetch anybody would have written.
+export async function openTab(url = 'about:blank') {
+  const res = await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(url)}`, {
+    method: 'PUT',
+  });
+  if (!res.ok) {
+    console.error(`could not open a tab (${res.status}); run ./tools/dev.sh first`);
+    process.exit(1);
+  }
+  const target = await res.json();
+  const page = await connect(target);
+  page.targetId = target.id;
+  return page;
+}
+
+export async function closeTab(page) {
+  if (!page.targetId) return;
+  await fetch(`http://127.0.0.1:${PORT}/json/close/${page.targetId}`).catch(() => {});
+}
+
+async function connect(target) {
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((r) => ws.addEventListener('open', r));
 

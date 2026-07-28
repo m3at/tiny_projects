@@ -18,6 +18,33 @@ const { evalIn } = page;
 const problems = [];
 const check = (ok, msg) => { if (!ok) { problems.push(msg); console.log('  ISSUE: ' + msg); } };
 
+// The menu first, with no ?dev at all, because that is the one screen every other tool skips: they
+// all arrive with a query that starts a game directly. A missing button here is invisible to
+// everything else in tools/, and was.
+await page.open('', 2200);
+const menu = await page.json(`({
+  title: document.getElementById('ov-title').textContent,
+  button: document.getElementById('ov-btn').textContent,
+  buttonShown: !document.getElementById('ov-btn').classList.contains('hidden'),
+  modes: [...document.querySelectorAll('.menu-modes button')].map((b) => b.firstChild.textContent),
+  counts: [...document.querySelectorAll('#ov-extra .field')].length,
+})`);
+console.log(`  menu: "${menu.title}" / "${menu.button}", modes [${menu.modes.join(', ')}]`);
+check(menu.buttonShown, 'the menu has no button to press');
+check(/sail/i.test(menu.button), `the menu button reads "${menu.button}"`);
+check(menu.modes.length === 3, `expected three modes, saw ${menu.modes.length}`);
+check(menu.counts === 2, 'the local mode should offer a captain count and a bot count');
+
+// Press it, and check a real match starts from the menu alone.
+await evalIn(`document.getElementById('ov-btn').click()`);
+await sleep(900);
+const afterMenu = await evalIn('__game.phase');
+check(
+  afterMenu !== 'menu',
+  `pressing the menu button left the game in "${afterMenu}"`,
+);
+console.log(`  menu started a game: phase ${afterMenu}`);
+
 await page.open('?dev=1&seed=' + (process.argv[2] || 2024));
 await page.reachPhase('build');
 
@@ -30,8 +57,8 @@ async function buildShip(label) {
   const before = Number(s.scrap);
 
   const cells = await page.json(`(async () => {
-    const { hullOf } = await import('/src/match.js');
-    return hullOf(globalThis.__game.match).cells.map((c) => [c.dx, c.dz]);
+    const { HULLS } = await import('/src/data/hulls.js');
+    return HULLS[globalThis.__game.client.state.hullIndex].cells.map((c) => [c.dx, c.dz]);
   })()`);
 
   // Buy in a sensible order: powder, crew, then guns, then plug holes.
@@ -61,20 +88,34 @@ async function buildShip(label) {
   return after;
 }
 
+// The build phase stays 'build' while the keyboard passes from one captain to the next, so waiting
+// on the phase is not enough: wait for the seat the panel is showing to change.
+async function reachSeat(seat, limitMs = 8000) {
+  const deadline = Date.now() + limitMs;
+  while (Date.now() < deadline) {
+    const s = await state();
+    if (s.phase === 'build' && s.seat === seat) return true;
+    if (s.phase === 'battle') return false;
+    await sleep(150);
+  }
+  return false;
+}
+
 let lastScore = [0, 0];
 for (let round = 1; round <= 5; round++) {
-  if ((await evalIn('__game.phase')) === 'match-end') break;
+  if ((await evalIn('__game.phase')) === 'over') break;
   if (!(await page.reachPhase('build'))) { check(false, `never reached build for round ${round}`); break; }
 
+  check(await reachSeat(0), `round ${round}: player 1 never got the keyboard`);
   await buildShip(`round ${round} player 1`);
   await evalIn(`__dev.tool('btn-lock')`);
-  await sleep(600);
+  await sleep(400);
 
-  // Handoff, then player 2 builds.
-  await page.reachPhase('build');
+  // The keyboard passes to player 2, still inside the same build phase.
+  check(await reachSeat(1), `round ${round}: the keyboard never passed to player 2`);
   await buildShip(`round ${round} player 2`);
   await evalIn(`__dev.tool('btn-lock')`);
-  await sleep(600);
+  await sleep(400);
 
   if (!(await page.reachPhase('battle'))) { check(false, `round ${round} never started`); break; }
   console.log(`    battle: watching, switching ammunition`);
@@ -88,6 +129,7 @@ for (let round = 1; round <= 5; round++) {
   // Let the round finish.
   for (let i = 0; i < 60 && (await evalIn('__game.phase')) === 'battle'; i++) await sleep(700);
 
+  await sleep(600); // the authority holds the verdict back over the slow-motion
   const s = await state();
   const score = s.score.map(Number);
   const gained = score[0] + score[1] - (lastScore[0] + lastScore[1]);
@@ -119,7 +161,7 @@ console.log(`\n  final phase: ${final}, score ${(await state()).score.join('-')}
 // 'intro' is where "New match" lands: the match-end button starts a fresh one.
 // 'result' covers both the end of a round and the end of the match; 'intro' is a fresh match.
 check(
-  ['result', 'menu', 'intro', 'build', 'handoff'].includes(final),
+  ['result', 'over', 'menu', 'intro', 'build', 'lobby'].includes(final),
   `ended in an odd phase: ${final}`,
 );
 console.log(problems.length ? `\n  ${problems.length} issue(s)` : '\n  no issues');

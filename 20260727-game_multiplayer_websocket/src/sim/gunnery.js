@@ -12,6 +12,7 @@
 
 import { CELL, GRAPE_EXTRA_SHOTS, GRAPE_SPREAD_SCALE, GRAPE_CREW_SCALE, RELOAD_JITTER } from '../config.js';
 import { gridIndex } from './ship.js';
+import { fatan2, fcos, fsin } from './geometry.js';
 import { resolveHit } from './damage.js';
 
 // Does this gun bear on a target in direction (dx, dz), `distSq` away squared? The arc's centre
@@ -30,10 +31,19 @@ export function bears(gun, ship, dx, dz, distSq) {
   return dot * dot >= gun.cosHalfArcSq * distSq;
 }
 
-export function fireGuns(battle, ship, enemy) {
+// `foes` is every ship this one may shoot at that is still in the fight. A gun takes the nearest of
+// them that is both in range and bearing, which is the only sensible reading of "a gun crew fires at
+// what they can see", and reduces exactly to the old single-enemy code when there is one entry: same
+// arithmetic, same order, same draws from the rng. tools/golden.js holds that.
+//
+// The list carries only ships still afloat, and battle.js rebuilds it when one strikes, so this
+// loop -- guns times foes times ticks, the busiest arithmetic in the game -- has no liveness test
+// in it. The count is hoisted for the same reason.
+export function fireGuns(battle, ship, foes) {
   if (ship.magazines === 0) return;
   const now = battle.time;
   const guns = ship.guns;
+  const foeCount = foes.length;
   for (let g = 0; g < guns.length; g++) {
     const gun = guns[g];
     // `manned` is false whenever the cell is dead, so it covers both.
@@ -43,18 +53,27 @@ export function fireGuns(battle, ship, enemy) {
     // that is a difference of several cells.
     const mx = ship.x + gun.cell.lx * ship.cos - gun.cell.lz * ship.sin;
     const mz = ship.z + gun.cell.lx * ship.sin + gun.cell.lz * ship.cos;
-    const dx = enemy.x - mx;
-    const dz = enemy.z - mz;
-    const distSq = dx * dx + dz * dz;
-    if (distSq > gun.rangeSq) continue;
-    if (!bears(gun, ship, dx, dz, distSq)) continue;
+
+    let enemy = null;
+    let distSq = Infinity;
+    for (let e = 0; e < foeCount; e++) {
+      const foe = foes[e];
+      const fx = foe.x - mx;
+      const fz = foe.z - mz;
+      const fSq = fx * fx + fz * fz;
+      if (fSq > gun.rangeSq || fSq >= distSq) continue;
+      if (!bears(gun, ship, fx, fz, fSq)) continue;
+      enemy = foe;
+      distSq = fSq;
+    }
+    if (enemy === null) continue;
 
     // Lead the target, then scatter. Only guns that actually fire pay for a square root.
     const spec = gun.spec;
     const flight = Math.sqrt(distSq) / spec.speed;
     const aimX = enemy.x + enemy.sin * enemy.speed * flight;
     const aimZ = enemy.z - enemy.cos * enemy.speed * flight;
-    const aimBearing = Math.atan2(aimX - mx, -(aimZ - mz));
+    const aimBearing = fatan2(aimX - mx, -(aimZ - mz));
 
     const grape = ship.ammo === 'grape';
     const shot = grape ? spec.grape : spec.round;
@@ -69,8 +88,8 @@ export function fireGuns(battle, ship, enemy) {
       battle.projectiles.push({
         x: mx,
         z: mz,
-        vx: Math.sin(ang) * speed,
-        vz: -Math.cos(ang) * speed,
+        vx: fsin(ang) * speed,
+        vz: -fcos(ang) * speed,
         owner: ship.index,
         target: enemy.index,
         damage: shot.damage,

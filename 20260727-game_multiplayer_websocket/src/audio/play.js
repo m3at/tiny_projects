@@ -55,38 +55,74 @@ const cursor = {};
 const energy = {};
 const seen = {};
 
+export const VOLUME = 0.7;
+
 // The sea bed is the one long-lived voice, so it is the one that has to be started at the right
 // moment. A suspended context's clock does not advance, so nodes started against it are silent and
 // only earn a console warning; statechange is when it becomes safe.
-function applyAmbience() {
-  if (sfx) sfx.ambience(wantAmbience && ctx.state === 'running');
+//
+// The gain is written here as well as at construction, and that is not redundant. Every path that can
+// leave the master gain somewhere other than where it belongs -- a context built while muted, an
+// automation left half applied, a browser that resumed the graph in some state of its own -- ends up
+// here when the context reaches running, and this puts it right. It is also exactly what pressing the
+// mute button twice used to do, which is how the fault was reported: no sound until the player toggled
+// the sound off and on again.
+function onRunning() {
+  if (!sfx) return;
+  if (ctx.state === 'running') {
+    sfx.master.gain.cancelScheduledValues(ctx.currentTime);
+    sfx.master.gain.setValueAtTime(muted ? 0 : VOLUME, ctx.currentTime);
+  }
+  sfx.ambience(wantAmbience && ctx.state === 'running');
 }
 
 function build() {
   ctx = new AudioContext();
-  ctx.addEventListener('statechange', applyAmbience);
-  sfx = createSfx(ctx, { volume: muted ? 0 : 0.7 });
-  applyAmbience();
+  ctx.addEventListener('statechange', onRunning);
+  sfx = createSfx(ctx, { volume: muted ? 0 : VOLUME });
+  onRunning();
 }
 
-const UNLOCK = { capture: true };
+const UNLOCK = { capture: true, passive: true };
+const GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'];
 
-// Called from pointer and key events until one of them actually carries user activation. Never
-// awaits resume(): that promise does not settle until the browser is ready, and awaiting it means
-// scheduling against a clock that is not moving.
+// Called from every gesture until the context is genuinely running. Never awaits resume(): that
+// promise does not settle until the browser is ready, and awaiting it means scheduling against a
+// clock that is not moving.
+//
+// It keeps listening until `ctx.state === 'running'`, and that is the fix for a whole class of
+// silence. The first version stopped listening as soon as it had *called* resume() once, which
+// assumes the call worked -- so a resume that was refused, a context that came up suspended anyway,
+// or one the browser suspended again later left the game permanently mute with nothing able to try
+// again. Several gesture kinds, because activation is not granted on the same event everywhere:
+// Safari has historically wanted a touchend or a click where Chrome is happy with a pointerdown.
 function unlock() {
   // Synthetic events -- a dispatchEvent from the dev harness, or element.click() -- do not grant
   // activation, and building a context that cannot start leaves a suspended one lying around and
   // logs a warning for every node anything tries to play through it.
   if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
   if (!ctx) build();
-  if (ctx.state !== 'running') ctx.resume();
-  removeEventListener('pointerdown', unlock, UNLOCK);
-  removeEventListener('keydown', unlock, UNLOCK);
+  if (ctx.state !== 'running') {
+    // Chrome returns a promise; older Safari returns undefined. Either way, do not await it.
+    const resumed = ctx.resume();
+    if (resumed && resumed.catch) resumed.catch(() => {});
+    return; // stay subscribed: whether it worked is not known yet
+  }
+  onRunning();
+  for (const kind of GESTURES) removeEventListener(kind, unlock, UNLOCK);
 }
 
-addEventListener('pointerdown', unlock, UNLOCK);
-addEventListener('keydown', unlock, UNLOCK);
+for (const kind of GESTURES) addEventListener(kind, unlock, UNLOCK);
+
+// Coming back to a backgrounded tab. Browsers suspend an idle context on their own, and a player who
+// switched away mid-match and came back to silence has no reason to guess that the mute button is
+// what fixes it.
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !ctx) return;
+  if (ctx.state === 'running') return;
+  const resumed = ctx.resume();
+  if (resumed && resumed.catch) resumed.catch(() => {});
+});
 
 const live = () => sfx && ctx.state === 'running' && !muted;
 
@@ -118,21 +154,46 @@ const panOf = (x) => Math.max(-1, Math.min(1, ((x || 0) / ARENA_RADIUS) * 0.7));
 
 export function setMuted(on) {
   muted = on;
-  if (sfx) sfx.master.gain.setTargetAtTime(on ? 0 : 0.7, ctx.currentTime, 0.02);
+  if (sfx) sfx.master.gain.setTargetAtTime(on ? 0 : VOLUME, ctx.currentTime, 0.02);
+  // Unmuting is a gesture, and it is the gesture a player reaches for when they cannot hear anything,
+  // so take it as one: if the context never started, this is the moment to try again.
+  if (!on) unlock();
   return muted;
 }
 
 export const isMuted = () => muted;
 
+// Why is there no sound? There are four separate reasons there might not be, and from the outside they
+// are indistinguishable, which is how the gesture bug below survived. Read by __dev.state().
+let emitted = 0;
+
+export function audioState() {
+  return {
+    built: !!ctx,
+    state: ctx ? ctx.state : 'none',
+    muted,
+    activated: navigator.userActivation ? navigator.userActivation.hasBeenActive : null,
+    live: !!live(),
+    // How many voices have actually been handed to the synthesiser. Everything else here can look
+    // right while this stays at zero, which is the only way to tell "silent" from "not playing".
+    emitted,
+    gain: sfx ? sfx.master.gain.value : null,
+    // A context can report 'running' and still have a clock that is not advancing, in which case
+    // everything scheduled against it is silent. This is the only way to see that from outside.
+    clock: ctx ? +ctx.currentTime.toFixed(3) : null,
+  };
+}
+
 export function setAmbience(on) {
   wantAmbience = on;
-  applyAmbience();
+  onRunning();
 }
 
 // Buttons and refusals. Unqueued: they answer a click, so they are never dense and must never be
 // late. See UI in sfx.js for what each one is.
 export function ui(name) {
   if (!live()) return;
+  emitted++;
   sfx.ui(name);
 }
 
@@ -140,6 +201,7 @@ export function ui(name) {
 export function consume(effects) {
   if (!live()) return;
   for (const e of effects) {
+    emitted++;
     switch (e.type) {
       case 'muzzle': {
         const s = slot('cannon');

@@ -1,13 +1,20 @@
 // Every colour the renderer uses. Part colours stay in data/parts.js because they are part
 // identity rather than styling; these are the surroundings the parts sit in.
 //
-// Keep the two PLAYER entries in step with --p1 and --p2 in styles.css.
+// Keep the four PLAYER entries in step with --p1 to --p4 in styles.css.
 
 // `spine` tints the centre column a shade lighter than the flanks, so the rule that
 // broadsides go on the flanks and vitals down the spine is visible on the deck itself.
+//
+// Four hulls have to be told apart at a glance on dark water while every part aboard them keeps its
+// own colour, so the four are separated by hue and not by lightness: blue, rust, sea-green, violet.
+// The decks are the same colour at a tenth of the saturation, which is what keeps a gun deck reading
+// as a gun deck on all four ships.
 export const PLAYER = [
   { deck: 0x25333d, spine: 0x334654, hull: 0x3d5568, flag: 0x5fa8ff },
   { deck: 0x3d2a24, spine: 0x513a30, hull: 0x60403a, flag: 0xff7a5f },
+  { deck: 0x243a31, spine: 0x30503f, hull: 0x3a604d, flag: 0x63d1a8 },
+  { deck: 0x33283d, spine: 0x453655, hull: 0x543f66, flag: 0xc98cf0 },
 ];
 
 export const SEA = {

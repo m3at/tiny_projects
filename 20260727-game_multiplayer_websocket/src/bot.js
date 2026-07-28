@@ -32,14 +32,15 @@ export function chooseAmmo(me, enemy) {
   return enemy.crew <= 6 || best <= 2 ? 'grape' : 'round';
 }
 
-// Drives both sides.
+// Drives every side, or only the seats it is given.
 //
-//   mode   'grape' for the normal bot, or 'round' to pin both to round shot, which is how
+//   mode   'grape' for the normal bot, or 'round' to pin everyone to round shot, which is how
 //          tools/ablate.js measures what the live decision is worth.
 //   apply  how to deliver the choice. Defaults straight to the simulation; the game passes its own,
 //          so the ammunition buttons light up as the bot works them.
-export function makeBot(battle, { mode = 'grape', apply } = {}) {
-  const [a, b] = battle.ships;
+//   seats  which ship indices to drive, or all of them. Online play fills the empty seats of a
+//          short-handed room with bots and leaves the humans alone.
+export function makeBot(battle, { mode = 'grape', apply, seats = null } = {}) {
   const set = apply || ((index, ammo) => battle.setAmmo(index, ammo));
   let due = 0;
 
@@ -48,13 +49,19 @@ export function makeBot(battle, { mode = 'grape', apply } = {}) {
       due -= dt;
       if (due > 0) return;
       due = REACTION;
-      if (mode === 'round') {
-        set(0, 'round');
-        set(1, 'round');
-        return;
+      const ships = battle.ships;
+      for (let i = 0; i < ships.length; i++) {
+        const ship = ships[i];
+        if (ship.out || (seats !== null && !seats.includes(ship.index))) continue;
+        if (mode === 'round') {
+          set(ship.index, 'round');
+          continue;
+        }
+        // Against whoever it is actually fighting. In a melee the ship you are pounding is not
+        // necessarily the one whose crew is thin, and the gun crews answer to the target they have.
+        const foe = ship.target !== null && !ship.target.out ? ship.target : null;
+        set(ship.index, foe === null ? 'round' : chooseAmmo(ship, foe));
       }
-      set(0, chooseAmmo(a, b));
-      set(1, chooseAmmo(b, a));
     },
   };
 }

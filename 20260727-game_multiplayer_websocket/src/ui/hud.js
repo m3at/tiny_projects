@@ -36,14 +36,169 @@ export function setVisible(el, on) {
   el.classList.toggle('hidden', !on);
 }
 
+// The overlay's log lines are the only HTML this game builds from data rather than from literals: the
+// result screen wants a player's name in bold beside what became of their ship. Names come from
+// strangers over a socket, so anything interpolated into one goes through this first. protocol.js
+// cleanName strips markup characters as well, and neither is a reason to skip the other.
+export function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (ch) => {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+  });
+}
+
 export function setRound(roundIndex, hullIndex) {
   text($('round-label'), `Round ${roundIndex + 1}`);
   text($('hull-label'), HULLS[hullIndex].name);
 }
 
-export function setScore(a, b) {
-  text($('score-p1'), String(a));
-  text($('score-p2'), String(b));
+// ---------------------------------------------------------------------------
+// the roster: the score row and the battle panels
+// ---------------------------------------------------------------------------
+//
+// Both are built from the roster rather than written into index.html, because the roster is two to
+// four seats and is not known until a match starts. A duel keeps exactly the reading it always had --
+// name, score, dash, score, name, each name pointing at its own side of the screen -- and three or
+// four become a list, because "3 - 1 - 0 - 2" with a dash between every pair is not a score anyone
+// can read.
+
+let roster = [];
+let mySeats = [];
+const seatClass = (seat) => `p${seat + 1}`;
+
+export function setupRoster({ players, mine = [], onAmmo = null, keyFor = null }) {
+  roster = players;
+  mySeats = mine;
+  buildScoreRow();
+  buildPanels(onAmmo, keyFor);
+}
+
+function buildScoreRow() {
+  const el = $('score');
+  el.innerHTML = '';
+  written.delete(el);
+  const duel = roster.length === 2;
+  el.classList.toggle('many', !duel);
+
+  roster.forEach((player, i) => {
+    if (duel && i === 1) {
+      const score = document.createElement('strong');
+      score.id = 'score-1';
+      el.appendChild(score);
+    }
+    const tag = document.createElement('span');
+    tag.className = `tag ${seatClass(player.seat)}${duel && i === 1 ? ' edge-right' : ''}`;
+    if (player.bot) tag.classList.add('bot');
+    tag.id = `tag-${player.seat}`;
+    tag.textContent = player.name;
+    el.appendChild(tag);
+    if (duel && i === 0) {
+      const score = document.createElement('strong');
+      score.id = 'score-0';
+      el.appendChild(score);
+      const dash = document.createElement('span');
+      dash.className = 'dash';
+      dash.textContent = '-';
+      el.appendChild(dash);
+    }
+    if (!duel) {
+      const score = document.createElement('strong');
+      score.id = `score-${player.seat}`;
+      el.appendChild(score);
+    }
+  });
+}
+
+// Seats alternate sides: 0 and 2 to the left, 1 and 3 to the right. So a duel is the left-against-
+// right picture the game has always drawn, and a four-way is two pairs facing each other.
+function buildPanels(onAmmo, keyFor) {
+  const cols = [$('panels-left'), $('panels-right')];
+  for (const col of cols) col.innerHTML = '';
+
+  for (const player of roster) {
+    const seat = player.seat;
+    const mine = mySeats.includes(seat);
+    const panel = document.createElement('div');
+    panel.className = `ship-status framed ${seatClass(seat)}${mine ? ' mine' : ''}`;
+    panel.id = `ship-${seat}`;
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = player.name;
+    // Marked only when there is somebody else's panel to tell it apart from. On one keyboard every
+    // ship is yours, and a "you" on all four says nothing.
+    if (mine && mySeats.length === 1) {
+      const you = document.createElement('span');
+      you.className = 'you';
+      you.textContent = 'you';
+      name.appendChild(you);
+    }
+    panel.appendChild(name);
+
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    const fill = document.createElement('div');
+    fill.className = 'fill';
+    fill.id = `hp-${seat}`;
+    bar.appendChild(fill);
+    panel.appendChild(bar);
+
+    const stats = document.createElement('div');
+    stats.className = 'stats';
+    stats.innerHTML = `<span id="crew-${seat}"></span><span id="guns-${seat}"></span>`;
+    panel.appendChild(stats);
+
+    // Only your own panel gets buttons. Somebody else's ammunition is not yours to load, and a row
+    // of dead controls on three panels reads as a bug.
+    if (mine && onAmmo) {
+      const ammo = document.createElement('div');
+      ammo.className = 'ammo';
+      for (const kind of ['round', 'grape']) {
+        const btn = document.createElement('button');
+        btn.className = `ammo-btn${kind === 'round' ? ' active' : ''}`;
+        btn.dataset.player = String(seat);
+        btn.dataset.ammo = kind;
+        btn.textContent = kind === 'round' ? 'Round shot' : 'Grape';
+        btn.onclick = () => onAmmo(seat, kind);
+        ammo.appendChild(btn);
+      }
+      const key = keyFor ? keyFor(seat) : null;
+      if (key) {
+        const hint = document.createElement('div');
+        hint.className = 'key-hint';
+        hint.textContent = `key: ${key.toUpperCase()}`;
+        ammo.appendChild(hint);
+      }
+      panel.appendChild(ammo);
+    }
+
+    cols[seat % 2].appendChild(panel);
+  }
+}
+
+export function setScores(scores) {
+  for (const player of roster) {
+    const el = $(`score-${player.seat}`);
+    if (el) text(el, String(scores[player.seat] ?? 0));
+  }
+}
+
+// A seat whose player has walked away, or one that was never a player. Shown in both places a name
+// appears, because a battle against a bot should not look like a battle against a person.
+export function setRosterState(players) {
+  for (const player of players) {
+    const tag = $(`tag-${player.seat}`);
+    if (tag) {
+      text(tag, player.name);
+      toggle(tag, 'away', !player.connected && !player.bot);
+    }
+    const panel = $(`ship-${player.seat}`);
+    if (panel) toggle(panel, 'away', !player.connected && !player.bot);
+  }
+}
+
+export function setLocked(seat, on) {
+  const tag = $(`tag-${seat}`);
+  if (tag) toggle(tag, 'locked', on);
 }
 
 export function setTimer(seconds) {
@@ -129,51 +284,68 @@ export function setWindLabel(windTo) {
 // about 3% of a hull, so this fires when something aboard actually breaks.
 const FLASH_THRESHOLD = 0.012;
 const FLASH_TIME = 0.18;
-const lastStructure = [1, 1];
-const hitFlash = [0, 0];
+let lastStructure = [];
+let hitFlash = [];
 
-export function resetBattlePanels() {
-  lastStructure[0] = 1;
-  lastStructure[1] = 1;
-  hitFlash[0] = 0;
-  hitFlash[1] = 0;
+export function resetBattlePanels(count = roster.length) {
+  lastStructure = new Array(count).fill(1);
+  hitFlash = new Array(count).fill(0);
 }
 
 export function updateBattlePanels(battle, dt = 0) {
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < battle.ships.length; i++) {
     const ship = battle.ships[i];
+    const panel = $(`ship-${i}`);
+    if (!panel) continue;
     const frac = structureFraction(ship);
 
     if (frac < lastStructure[i] - FLASH_THRESHOLD) hitFlash[i] = FLASH_TIME;
     lastStructure[i] = frac;
     if (hitFlash[i] > 0) hitFlash[i] -= dt;
-    toggle($(`ship-p${i + 1}`), 'hit', hitFlash[i] > 0);
+    toggle(panel, 'hit', hitFlash[i] > 0);
+    // In a melee a ship leaves the fight without the battle ending, so her panel has to say so.
+    toggle(panel, 'struck', !!ship.out);
 
-    const bar = $(`hp-p${i + 1}`);
+    const bar = $(`hp-${i}`);
     style(bar, 'width', `${Math.max(0, frac * 100).toFixed(1)}%`);
     toggle(bar, 'warn', frac <= 0.55 && frac > 0.28);
     toggle(bar, 'critical', frac <= 0.28);
 
     // The read that matters for grape shot: how many guns still have hands on them.
-    const alive = ship.guns.filter((g) => g.cell.alive);
-    const manned = alive.filter((g) => g.manned).length;
-    text($(`crew-p${i + 1}`), `crew ${ship.crew}/${ship.crewSupply}`);
-    text(
-      $(`guns-p${i + 1}`),
-      ship.magazines === 0 ? 'no powder' : `guns ${manned}/${alive.length}`,
-    );
+    let aliveGuns = 0;
+    let manned = 0;
+    for (const gun of ship.guns) {
+      if (!gun.cell.alive) continue;
+      aliveGuns++;
+      if (gun.manned) manned++;
+    }
+    text($(`crew-${i}`), ship.out ? 'struck' : `crew ${ship.crew}/${ship.crewSupply}`);
+    text($(`guns-${i}`), ship.magazines === 0 ? 'no powder' : `guns ${manned}/${aliveGuns}`);
     toggle(
-      $(`guns-p${i + 1}`),
+      $(`guns-${i}`),
       'alert',
-      alive.length > 0 && (ship.magazines === 0 || manned < alive.length),
+      !ship.out && aliveGuns > 0 && (ship.magazines === 0 || manned < aliveGuns),
     );
   }
 }
 
-export function setAmmoButtons(player, ammo) {
-  document.querySelectorAll(`.ammo-btn[data-player="${player}"]`).forEach((b) => {
+export function setAmmoButtons(seat, ammo) {
+  document.querySelectorAll(`.ammo-btn[data-player="${seat}"]`).forEach((b) => {
     b.classList.toggle('active', b.dataset.ammo === ammo);
   });
+}
+
+// The wire, for a networked game. Nothing here changes how the game plays; it is here because a
+// player who is losing wants to know whether it is them or the connection.
+export function setNetBar(line, trouble = false) {
+  const el = $('netbar');
+  if (!line) {
+    setVisible(el, false);
+    return;
+  }
+  setVisible(el, true);
+  text(el, line);
+  toggle(el, 'trouble', trouble);
 }
 
 // Small plan-view schematic of a design, used for "enemy, last seen".
@@ -210,7 +382,9 @@ export function drawSchematic(canvas, design, hullIndex) {
   }
 }
 
-export function showOverlay({ title, body, log, button, onClick }) {
+// `node` is anything an overlay needs beyond prose -- the menu, a lobby roster, a join code -- and
+// `alt` is a second button for the choice that is not the obvious one.
+export function showOverlay({ title, body, log, node, button, onClick, alt }) {
   $('ov-title').textContent = title;
   $('ov-body').textContent = body || '';
   const logEl = $('ov-log');
@@ -220,13 +394,60 @@ export function showOverlay({ title, body, log, button, onClick }) {
     div.innerHTML = line;
     logEl.appendChild(div);
   }
+  const extra = $('ov-extra');
+  extra.innerHTML = '';
+  if (node) extra.appendChild(node);
+
+  const altBtn = $('ov-alt');
+  setVisible(altBtn, !!alt);
+  if (alt) {
+    altBtn.textContent = alt.label;
+    altBtn.onclick = alt.onClick;
+    altBtn.disabled = !!alt.disabled;
+  }
+
   const btn = $('ov-btn');
+  setVisible(btn, button !== null);
   btn.textContent = button || 'Continue';
   btn.onclick = onClick;
+  btn.disabled = false;
   setVisible($('overlay'), true);
-  btn.focus();
+  // Focus the button unless the overlay put a field in front of it, in which case typing is what
+  // the player came here to do.
+  const field = node ? node.querySelector('input') : null;
+  if (field) field.focus();
+  else btn.focus();
+}
+
+export function setOverlayButton({ label, disabled }) {
+  const btn = $('ov-btn');
+  if (label !== undefined) btn.textContent = label;
+  if (disabled !== undefined) btn.disabled = disabled;
 }
 
 export function hideOverlay() {
   setVisible($('overlay'), false);
+}
+
+// The "last seen" column: one schematic per opponent, captioned, because in a four-way the label
+// "enemy" does not identify anybody. Sized to fit however many there are.
+export function drawIntel(entries, names) {
+  const list = $('enemy-list');
+  list.innerHTML = '';
+  list.classList.toggle('single', entries.length === 1);
+  setVisible($('enemy-intel'), entries.length > 0);
+  const wide = entries.length === 1;
+  for (const entry of entries) {
+    const figure = document.createElement('figure');
+    const canvas = document.createElement('canvas');
+    canvas.width = wide ? 180 : 84;
+    canvas.height = wide ? 240 : 112;
+    figure.appendChild(canvas);
+    const caption = document.createElement('figcaption');
+    caption.className = `p${entry.player + 1}`;
+    caption.textContent = names[entry.player] ?? `Player ${entry.player + 1}`;
+    figure.appendChild(caption);
+    list.appendChild(figure);
+    drawSchematic(canvas, entry.design, entry.hullIndex);
+  }
 }
