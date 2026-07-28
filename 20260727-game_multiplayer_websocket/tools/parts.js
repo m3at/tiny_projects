@@ -25,35 +25,21 @@
 
 import * as ship from '../src/sim/ship.js';
 import * as battleMod from '../src/sim/battle.js';
-import { autoBuild } from '../src/autobuild.js';
+import * as gunnery from '../src/sim/gunnery.js';
+import { autoBuild, randomProfile } from '../src/autobuild.js';
 import { PARTS, BUYABLE } from '../src/data/parts.js';
 import { HULLS } from '../src/data/hulls.js';
 import * as config from '../src/config.js';
 import { makeRng } from '../src/sim/rng.js';
-import { pct, budgetFor, playBattle } from './lib.js';
+import { pct, budgetFor, playBattle } from './harness.js';
 
-const mods = { ship, battle: battleMod, config };
-const GUNS = BUYABLE.filter((id) => PARTS[id].gun);
-// A bow chaser can only be worked from the bow, so it can never be a ship's main armament. Using
-// it as one would measure "picked a gun that cannot fill a hull", not "this gun is weak".
-const PRIMARY = GUNS.filter((id) => PARTS[id].gun.arc !== 'bow');
-const ARMOUR = ['timber', 'heavy'];
-
-// A random but plausible ship: some primary gun, sometimes a second kind, some sail, some armour.
-// The point is spread, not quality -- a bad build is a useful data point.
+const mods = { ship, battle: battleMod, gunnery, config };
+// The spread is the point, not the quality: a bad build is a useful data point. randomProfile lives
+// in autobuild.js so the dev harness draws its autoplayed ships from exactly the same distribution.
 function randomBuild(hullIndex, budget, rng) {
   const design = ship.createDesign();
-  const profile = {
-    gun: PRIMARY[rng.int(0, PRIMARY.length - 1)],
-    second: rng.range(0, 1) < 0.55 ? GUNS[rng.int(0, GUNS.length - 1)] : null,
-    gunCount: rng.int(1, 8),
-    // Up to one past what the hull can use: the build readout states the number, so a player
-    // over-rigging by five is not a build the game encourages.
-    mastCount: rng.int(1, config.mastsWanted(HULLS[hullIndex].cells.length) + 1),
-    armour: ARMOUR[rng.int(0, ARMOUR.length - 1)],
-    massed: rng.range(0, 1) < 0.35,
-  };
-  autoBuild(design, hullIndex, budget, profile, rng.range(0, 1) < 0.5 ? 'port' : 'starboard');
+  const side = rng.range(0, 1) < 0.5 ? 'port' : 'starboard';
+  autoBuild(design, hullIndex, budget, randomProfile(rng, hullIndex), side);
   return design;
 }
 
@@ -89,7 +75,7 @@ for (const hullIndex of hulls) {
     for (let k = 1; k <= OPPONENTS; k++) {
       const j = (i + k * 7) % builds.length;
       if (i === j) continue;
-      const pair = [structuredClone(builds[i].design), structuredClone(builds[j].design)];
+      const pair = [ship.cloneDesign(builds[i].design), ship.cloneDesign(builds[j].design)];
       const out = playBattle(mods, pair, hullIndex, i * 131 + k);
       battles++;
       time += out.time;

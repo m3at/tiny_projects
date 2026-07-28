@@ -25,6 +25,8 @@ node tools/match.js 40      full 5-round matches: economy, fill rates, sweeps, i
 node tools/ablate.js        disables one mechanic at a time, reports what actually changes
 node tools/events.js        confirms detonations / severings / dismastings fire
 node tools/bench.js         simulation throughput; every other tool is built out of this number
+node tools/audio.js         renders every sound offline: clipping, DC offset, onset clicks
+node tools/golden.js        fingerprint 900 battles; diff it across a refactor
 node tools/shot.js out.png "800 ;; ovBtn() ;; 400" "?dev=brawler,crusher&round=5"
 ```
 
@@ -54,6 +56,12 @@ came from a tool, and several confident guesses were wrong:
 - "Ships fire one volley then sail to the edge" was reported as a feel problem and turned out to
   be a one-line steering bug: the two ships orbited in opposite senses, which is a parallel
   course. They held their range perfectly and marched off the map together.
+- A ship with crew for only half its guns could put every one of those hands on the flank the fight
+  was not on, and spend the whole battle unable to fire. Found by hand-building exactly that ship
+  in a probe and watching it do nothing for forty seconds; the fix is that hands go to the battery
+  that will bear (`createBattle` sorts the guns before manning them).
+- Masts have always cost crew in the build readout and never cost it in the battle, so ships fought
+  with more guns manned than the panel said they could. Now the sails take their hands first.
 - Battles were assumed to be too long. They were too *empty*: 86% of the time nothing was in the
   air. At 13-17s they are at the low end of the 15-25s that shipped autobattlers use.
 - Sweeps were assumed to prove a snowball. 17% of matches are 3-0, and pure chance produces 25%
@@ -101,16 +109,30 @@ measure near 50% against `brawler`, and if it ever climbs, that rule has been un
 src/config.js      every gameplay and feel constant. Tools read the same file
 src/theme.js       every colour. Keep PLAYER[] in step with --p1/--p2 in styles.css
 src/match.js       scores, purses, hull progression, intel. Pure: no DOM, no three.js
-src/sim/           deterministic battle core: rng, ship, battle
 src/autobuild.js   greedy ship builder: bot opponent and the dev Fill button
 src/dev.js         URL-driven dev harness, inert without ?dev
 src/perf.js        rolling frame stats, always on
 src/main.js        presentation and flow: phases, input, render loop
 src/render/        three.js scene, ship meshes, particles, glyph textures
+src/audio/sfx.js   every sound, synthesised. Takes a context, so it renders offline for testing
+src/audio/play.js  when to make a noise: voice spacing, stereo placement, mute, the gesture unlock
 src/ui/            build-phase panel, HUD chrome
 src/data/          parts, hull shapes (ASCII art)
+
+src/sim/           the deterministic battle core, one file per question
+  rng.js           seeded generator
+  geometry.js      len, wrapAngle, ship-local to world
+  ship.js          the persistent design, and the runtime state of one ship in one battle
+  steering.js      how the two ships sail and hold station
+  gunnery.js       firing, shot in flight, and where a ball lands
+  damage.js        what a ball does on arrival: structure, crew, magazines, severing
+  battle.js        the clock over all of it, and how a round ends
+
 tools/             headless harnesses and the CDP driver
-tools/lib.js       shared harness code: measureBattle, playBattle, the bot's ammo choice
+  harness.js       playBattle (outcomes) and measureBattle (what it looked like)
+  bot.js           the stand-in player: the ammunition decision, and its reaction interval
+  variant.js       run the sim with src/ patched in a temp dir, for ablate.js and tune.js
+  golden.js        determinism guard; record before refactoring, diff after
 ```
 
 Hold these:
@@ -125,12 +147,67 @@ Hold these:
   type; swapping the box for a loaded mesh per type is the whole migration to real 3D.
 - **`main.js` is the only file that knows about both the DOM and the simulation.**
 - **The sim's hot path is performance-sensitive on purpose.** Every question here is answered by
-  running thousands of battles, so throughput compounds across a session; `tools/bench.js`
-  reports it, currently ~1600 battles/sec. The wins already taken: an integer cell grid
-  (`gridIndex`) instead of `"dx,dz"` string keys, a maintained `aliveCells` count instead of
-  filtering arrays per tick, in-place projectile compaction, trigonometry hoisted out of the gun
-  loop, and `len()` instead of `Math.hypot`. Do not reintroduce per-tick allocation.
+  running thousands of battles, so throughput compounds across a session. `tools/bench.js` reports
+  it: ~3200 battles/sec, about 45,000 simulated seconds per real second. Do not reintroduce
+  per-tick allocation or per-tick trigonometry.
+- **Refactor against `tools/golden.js`.** Record it, change the code, diff it. Anything meant to be
+  structural must leave it byte-identical. It has already caught one refactor that changed
+  behaviour and one that did not but looked like it might.
 - **Whoever consumes `battle.effects` must drain it.** Nothing in `sim/` clears it.
+
+## What made the simulation fast
+
+From 1131 to ~3200 battles/sec, all of it from the profiler (`node --cpu-prof`) and none of it from
+guessing. Worth knowing which lever is which, because the shape repeats:
+
+- The cell grid is a *dense* array of nulls, not a sparse one. This was the single largest win, and
+  the least obvious: a JavaScript array left full of holes can fall out of V8's fast element kinds,
+  and this is the busiest read in the game. Same story for indexed `for` loops over `guns`/`cells`
+  in the three hottest functions.
+- Reload is an absolute deadline (`gun.readyAt`), not a countdown. A countdown means writing to
+  every gun on every tick whether or not anything is happening.
+- Range and arc tests compare squared lengths, so no square root, and the arc test is a dot
+  product against a precomputed cosine rather than an `atan2` and an angle wrap.
+- A ball outside the hull and travelling away from it is dropped immediately: it can never hit,
+  since every shot flies faster than any ship sails. It also splashes alongside instead of off in
+  the distance, which looks better.
+- Heading sine and cosine are cached on the ship per tick; `refreshSystems` maintains `mass`,
+  `sail` and `canFire` so `steer` and `checkEnd` do not recompute them.
+- `severDisconnected` marks reachability with a per-ship stamp instead of a `Set` of strings, and
+  skips the flood fill when the lost cell had at most one live neighbour -- but only after the
+  first full sweep, because a build can start out with a section not joined to the helm.
+
+Two things measured as *not* worth doing, which is equally useful to know: pooling the `effects`
+objects (no measurable cost at all) and shortening projectile lifetimes (already handled by the
+receding-ball test).
+
+## Audio notes
+
+Synthesised, no files: `src/audio/sfx.js` builds everything from oscillators and one shared buffer of
+white noise. It takes an `AudioContext` rather than creating one, which is what lets `tools/audio.js`
+render each sound through an `OfflineAudioContext` and measure it — offline contexts are exempt from
+the autoplay gesture rule, so this works headlessly.
+
+Run `node tools/audio.js` after touching a sound. It catches the three faults that are invisible to
+clicking around: samples over 1.0, a DC offset, and a step at onset. All three have already been
+caught this way.
+
+Rules worth not relearning:
+
+- Envelopes anchor at zero, ramp up over ~2ms, decay exponentially to a whisker above zero, then hard
+  zero. `exponentialRampToValueAtTime(0)` throws; ramping *from* zero silently becomes a step.
+  An instant gain step on noise measures a 0.8 jump at onset and clicks audibly.
+- Noise must be bipolar. `Math.random()` alone is a 0.2 DC offset that thumps on every start and stop.
+- Voices are fire-and-forget. A cannon costs ~50us to build; pooling gain nodes buys nothing and
+  reintroduces clicks from stale automation. What is long-lived is the context, the noise buffer and
+  the master bus.
+- A suspended context's `resume()` returns a promise that never settles until the user has
+  interacted, and its clock does not advance. Never await it, and emit nothing unless
+  `ctx.state === 'running'`, or everything scheduled meanwhile fires at once when it finally starts.
+- Sixteen guns is not sixteen sounds. `play.js` gives each kind a minimum spacing and drops the rest.
+- Beware what you measure: the first version of the onset check flagged the detonation, because high
+  frequencies have large sample-to-sample deltas by nature. Measuring the step *out of silence* is
+  the thing that distinguishes a click from a bright sound.
 
 ## Rendering notes
 
@@ -160,6 +237,10 @@ only resizes the canvas and rebuilds the projection when something changed.
   (`for (...) __game.battle.advance(0.05)`), or the capture will race.
 - Dev autoplay stops after one match on purpose. `&loop=1` opts back in. A forgotten looping
   tab once pinned a CPU core.
+- The build countdown uses real elapsed time, not the clamped simulation step, so a slow machine
+  does not hand out a longer build phase. Both still stop when the tab is backgrounded.
+- `tools/shot.js` prints a line per step *before* the screenshot line. Piping it through `tail -3`
+  hides exactly the output you wanted; grep for `step` instead.
 - In `ui/build.js`, `renderAll()` deliberately does not touch the hint text; callers own it.
   It used to, which silently ate every feedback message.
 - `tools/shot.js` takes the dev query as its *third* argument. It used to only read a `URL`
@@ -182,6 +263,30 @@ comments that restate the code. Match the surrounding density.
 
 Prose in docs and comments: plain, no bold or italics, minimal ceremony. Say what was
 measured and what it showed.
+
+## Playtesting
+
+The build phase is raycasted clicks on a WebGL canvas, which no DOM query can reach, so `?dev`
+exposes `__dev` for the CDP driver:
+
+```
+__dev.clickCell(dx, dz)    project a hull cell to screen and dispatch real pointer events
+__dev.pickCard('gun deck') select an offered part by name, prefix-matched
+__dev.tool('btn-reroll')   press reroll / refit / remove / lock in
+__dev.state()              phase, round, score, purse, offer, readout, warnings, hint, battle
+```
+
+`&seed=1234` pins the match seed. Without it every match is random, which means a bug found while
+playing cannot be replayed -- that was the first thing playtesting needed.
+
+Two habits that found real bugs:
+
+- Probe the *edges* headlessly, not through the UI: a helm with no guns, guns with no crew, no
+  magazine, a part placed with no path back to the helm. A scratch script driving `createBattle`
+  directly runs in milliseconds and says exactly what happened. Every case should end in a sensible
+  way and none should run to the bell.
+- When a probe reports something absurd, suspect the probe first and check it, but *then* keep
+  going. Two of the last three "probe bugs" were real game bugs wearing a probe's clothes.
 
 ## Balance, and how much of it to want
 

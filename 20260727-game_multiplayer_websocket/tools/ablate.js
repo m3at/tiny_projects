@@ -8,12 +8,8 @@
 //
 //   node tools/ablate.js
 
-import { cpSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pct, budgetFor, playBattle } from './lib.js';
-
-const SRC = new URL('../src/', import.meta.url).pathname;
+import { pct, budgetFor, playBattle } from './harness.js';
+import { variant, cleanupVariants, checkPatches } from './variant.js';
 
 // name -> [file, find, replace][]
 const VARIANTS = {
@@ -24,21 +20,23 @@ const VARIANTS = {
   'no armour soak': [['data/parts.js', 'soak: 2,', 'soak: 0,']],
   // Destroyed cells block shot instead of letting it through to the spine.
   'holes block shot': [
-    ['sim/battle.js', 'return cell !== undefined && cell.alive ? cell : null;', 'return cell ?? null;'],
+    ['sim/gunnery.js', 'return cell !== null && cell.alive ? cell : null;', 'return cell;'],
   ],
   // Ships always point their bow at the enemy instead of presenting a flank.
-  'no orbiting': [['sim/battle.js', "const bias = spec.arc === 'bow' ? 0 : 90;", 'const bias = 0;']],
+  'no orbiting': [['sim/steering.js', "const bias = spec.arc === 'bow' ? 0 : 90;", 'const bias = 0;']],
   // Both ships circle the same way. Opposite senses put them on parallel courses, which is
   // what the game used to do: perfect range-keeping, no shooting, straight off the map.
   'opposed orbits': [
-    ['sim/battle.js', 'const hold = bias * battle.sense;', 'const hold = bias * (ship.index === 0 ? 1 : -1);'],
+    ['sim/steering.js', 'const hold = bias * battle.sense;', 'const hold = bias * (ship.index === 0 ? 1 : -1);'],
   ],
   // Broadsides answer to either beam, so which flank a gun sits on stops being a decision.
+  // Answering to either beam needs two windows, so the single-arc test becomes a pair. The gun
+  // keeps its own arc and gains the mirrored one.
   'either-beam broadsides': [
     [
-      'sim/ship.js',
-      "part.gun.arc === 'side' ? [sideOfCell(cell.dx) === 'port' ? -Math.PI / 2 : Math.PI / 2] : [0];",
-      "part.gun.arc === 'side' ? [-Math.PI / 2, Math.PI / 2] : [0];",
+      'sim/gunnery.js',
+      '  const dot = dx * ax + dz * az;\n  if (dot <= 0) return false;\n  return dot * dot >= gun.cosHalfArcSq * distSq;',
+      '  const dot = Math.abs(dx * ax + dz * az);\n  return dot * dot >= gun.cosHalfArcSq * distSq;',
     ],
   ],
   // A ship driven inside its preferred range turns tail instead of holding the circle.
@@ -58,7 +56,7 @@ const VARIANTS = {
   ],
   // Cut-off sections stay attached.
   'no severing': [
-    ['sim/ship.js', 'const helm = ship.byKey.get(HELM_KEY);', 'return [];\n  const helm = ship.byKey.get(HELM_KEY);'],
+    ['sim/ship.js', 'const helm = ship.helm;', 'return [];\n  const helm = ship.helm;'],
   ],
   // Powder goes up quietly.
   'no detonation': [
@@ -66,33 +64,9 @@ const VARIANTS = {
   ],
   // Guns work with no powder aboard.
   'no magazine rule': [
-    ['sim/battle.js', 'const canFire = ship.magazines > 0;', 'const canFire = true;'],
+    ['sim/gunnery.js', 'if (ship.magazines === 0) return;', ''],
   ],
 };
-
-const roots = [];
-function buildVariant(name, patches) {
-  const dir = mkdtempSync(join(tmpdir(), 'ablate-'));
-  roots.push(dir);
-  cpSync(SRC, join(dir, 'src'), { recursive: true });
-  for (const [file, find, replace] of patches) {
-    const path = join(dir, 'src', file);
-    const text = readFileSync(path, 'utf8');
-    if (!text.includes(find)) throw new Error(`${name}: patch target missing in ${file}: ${find}`);
-    writeFileSync(path, text.replace(find, replace));
-  }
-  return dir;
-}
-
-async function loadVariant(dir) {
-  const [ship, battle, autobuild, config] = await Promise.all([
-    import(join(dir, 'src/sim/ship.js')),
-    import(join(dir, 'src/sim/battle.js')),
-    import(join(dir, 'src/autobuild.js')),
-    import(join(dir, 'src/config.js')),
-  ]);
-  return { ship, battle, autobuild, config };
-}
 
 // One battle between two archetypes under the given (possibly patched) modules.
 function runBattle(mod, hullIndex, aType, bType, seed, opts = {}) {
@@ -122,13 +96,16 @@ function grid(mod, opts) {
   return rows;
 }
 
+// Fail in milliseconds rather than minutes if a patch string has gone stale.
+checkPatches(VARIANTS);
+
 console.log('Replaying an identical grid of matchups under each variant.\n');
 console.log('variant              battles  meanTime  decisive  winnerFlips  |Δ win rate|');
 console.log('-'.repeat(78));
 
 let base = null;
 for (const [name, patches] of Object.entries(VARIANTS)) {
-  const mod = await loadVariant(buildVariant(name, patches));
+  const mod = await variant(name, patches);
   const rows = grid(mod, {});
   const meanTime = rows.reduce((s, r) => s + r.time, 0) / rows.length;
   const decisive = rows.filter((r) => r.decisive).length / rows.length;
@@ -164,7 +141,7 @@ for (const [name, patches] of Object.entries(VARIANTS)) {
 // Wind gets a second, sharper test: hold everything else fixed and sweep the direction.
 // If the winner never changes, the wind is scenery.
 {
-  const mod = await loadVariant(buildVariant('wind-sweep', []));
+  const mod = await variant('wind-sweep', []);
   console.log('\nWind sweep: same designs and seed, wind direction rotated through 24 points.');
   console.log('hull              matchup             distinct outcomes  time spread');
   console.log('-'.repeat(74));
@@ -187,7 +164,7 @@ for (const [name, patches] of Object.entries(VARIANTS)) {
 
 // Grape shot: does having a second ammunition type change anything?
 {
-  const mod = await loadVariant(buildVariant('grape', []));
+  const mod = await variant('grape', []);
   const withGrape = grid(mod, { grape: true });
   const without = grid(mod, { grape: false });
   const byKey = new Map(withGrape.map((r) => [r.key, r]));
@@ -195,4 +172,4 @@ for (const [name, patches] of Object.entries(VARIANTS)) {
   console.log(`\nGrape shot never used: ${pct(flips)} of outcomes change.`);
 }
 
-for (const dir of roots) rmSync(dir, { recursive: true, force: true });
+cleanupVariants();

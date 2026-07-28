@@ -2,7 +2,7 @@
 // the other. Pure state with no DOM and no renderer, so the eventual server can own it and
 // main.js is left doing only presentation and flow.
 
-import { createDesign, fitDesignToHull } from './sim/ship.js';
+import { createDesign, fitDesignToHull, cloneDesign } from './sim/ship.js';
 import { HULLS } from './data/hulls.js';
 import { ROUNDS, POINTS_TO_WIN, loserBonus } from './config.js';
 import { makeRng, hashSeed } from './sim/rng.js';
@@ -47,12 +47,42 @@ export function battleSeed(match) {
   return hashSeed(match.seed, match.roundIndex, 4242);
 }
 
-export function offerSeed(match, player) {
-  return hashSeed(match.seed, match.roundIndex, player, 913);
+// What became of a ship, for the result screen. A running log says what happened; this says which
+// decision was wrong, which is the thing a player watching a battle they cannot steer actually needs.
+// Reads only the battle's own state, so it stays pure.
+export function roundSummary(ship) {
+  let mastsHad = 0;
+  let mastsLeft = 0;
+  let handsHad = 0;
+  for (const cell of ship.cells) {
+    handsHad += cell.crewSupply;
+    if (cell.id === 'mast') {
+      mastsHad++;
+      if (cell.alive) mastsLeft++;
+    }
+  }
+  let gunsLeft = 0;
+  let firing = 0;
+  for (const gun of ship.guns) {
+    if (gun.cell.alive) gunsLeft++;
+    if (gun.manned) firing++;
+  }
+  return {
+    cellsHad: ship.cells.length,
+    cellsLeft: ship.aliveCells,
+    gunsHad: ship.guns.length,
+    gunsLeft,
+    firing,
+    mastsHad,
+    mastsLeft,
+    handsHad,
+    hands: ship.crew,
+    powder: ship.magazines,
+  };
 }
 
-function snapshot(design) {
-  return { parts: structuredClone(design.parts) };
+export function offerSeed(match, player) {
+  return hashSeed(match.seed, match.roundIndex, player, 913);
 }
 
 // Award the point and let both players see what they were up against.
@@ -65,7 +95,7 @@ export function recordResult(match, winner) {
   }
   const hullIndex = hullIndexOf(match);
   for (let i = 0; i < 2; i++) {
-    match.lastSeen[i] = { design: snapshot(match.designs[i]), hullIndex };
+    match.lastSeen[i] = { design: cloneDesign(match.designs[i]), hullIndex };
   }
 }
 

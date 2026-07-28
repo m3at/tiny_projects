@@ -5,6 +5,7 @@
 
 import { PARTS } from './data/parts.js';
 import { HULLS, cellKey, isBowCell } from './data/hulls.js';
+import { mastsWanted } from './config.js';
 import { HELM_KEY, sideOfCell } from './sim/ship.js';
 
 function freeCells(design, hullIndex) {
@@ -214,6 +215,30 @@ export function autoBuild(design, hullIndex, budget, profile, side = 'port') {
   }
 
   return scrap;
+}
+
+// A plausible but unplanned ship, the way a player who takes what the draft offers ends up. Used by
+// tools/parts.js to sample the space of buildable ships, and by the dev harness so an autoplayed
+// match looks like a game rather than like a pure gun-deck ship meeting a pure carronade one.
+//
+// A bow chaser can never be a ship's main armament -- there is only the bow to work it from -- so it
+// only ever appears as the supporting gun.
+const PRIMARY_GUNS = ['swivel', 'gundeck', 'carronade'];
+const SECOND_GUNS = ['swivel', 'gundeck', 'carronade', 'longgun'];
+
+export function randomProfile(rng, hullIndex) {
+  const wanted = mastsWanted(HULLS[hullIndex].cells.length);
+  return {
+    gun: PRIMARY_GUNS[rng.int(0, PRIMARY_GUNS.length - 1)],
+    second: rng.range(0, 1) < 0.55 ? SECOND_GUNS[rng.int(0, SECOND_GUNS.length - 1)] : null,
+    gunCount: rng.int(1, 8),
+    // At most one mast past what the hull can use: the readout states the number, so a player
+    // over-rigging by five is not a build the game encourages.
+    mastCount: rng.int(1, wanted + 1),
+    armour: rng.range(0, 1) < 0.5 ? 'heavy' : 'timber',
+    massed: rng.range(0, 1) < 0.35,
+    label: 'Drafted ship',
+  };
 }
 
 export const ARCHETYPES = {

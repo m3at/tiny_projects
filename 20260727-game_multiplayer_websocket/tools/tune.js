@@ -13,12 +13,8 @@
 // watching, `spread` and `sweep` say whether it is still fair. A value that empties the dry
 // time and flattens the archetypes into a coin flip has won nothing.
 
-import { cpSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pct, budgetFor, measureBattle } from './lib.js';
-
-const SRC = new URL('../src/', import.meta.url).pathname;
+import { pct, budgetFor, measureBattle } from './harness.js';
+import { variant, cleanupVariants, checkPatches } from './variant.js';
 
 // name -> { file, find, values: [[label, replacement], ...] }
 // `find` must appear verbatim in the file, so a stale sweep fails loudly.
@@ -32,14 +28,19 @@ const SWEEPS = {
   // real build decision (mass for punch, split for consistency, against a randomly drawn
   // engaged side); either beam removes that axis but keeps every gun working.
   'broadside-arcs': {
-    file: 'sim/ship.js',
-    find: "part.gun.arc === 'side' ? [sideOfCell(cell.dx) === 'port' ? -Math.PI / 2 : Math.PI / 2] : [0];",
+    // Same patch as tools/ablate.js "either-beam broadsides": taking the absolute value of the dot
+    // product mirrors the arc onto the other beam.
+    file: 'sim/gunnery.js',
+    find: '  const dot = dx * ax + dz * az;\n  if (dot <= 0) return false;\n  return dot * dot >= gun.cosHalfArcSq * distSq;',
     values: [
       [
         'one-flank',
-        "part.gun.arc === 'side' ? [sideOfCell(cell.dx) === 'port' ? -Math.PI / 2 : Math.PI / 2] : [0];",
+        '  const dot = dx * ax + dz * az;\n  if (dot <= 0) return false;\n  return dot * dot >= gun.cosHalfArcSq * distSq;',
       ],
-      ['either', "part.gun.arc === 'side' ? [-Math.PI / 2, Math.PI / 2] : [0];"],
+      [
+        'either',
+        '  const dot = Math.abs(dx * ax + dz * az);\n  return dot * dot >= gun.cosHalfArcSq * distSq;',
+      ],
     ],
   },
   'orbit-close': {
@@ -73,8 +74,16 @@ const SWEEPS = {
   },
   'battle-cap': {
     file: 'config.js',
-    find: 'export const BATTLE_CAP = 30;',
-    values: [20, 25, 30, 40].map((v) => [String(v), `export const BATTLE_CAP = ${v};`]),
+    find: 'export const BATTLE_CAP = 40; // hard stop',
+    values: [25, 30, 40, 60].map((v) => [
+      String(v),
+      `export const BATTLE_CAP = ${v}; // hard stop`,
+    ]),
+  },
+  overtime: {
+    file: 'config.js',
+    find: 'export const OVERTIME_AT = 20;',
+    values: [12, 16, 20, 28, 999].map((v) => [String(v), `export const OVERTIME_AT = ${v};`]),
   },
   wind: {
     file: 'config.js',
@@ -114,28 +123,6 @@ const SWEEPS = {
     ]),
   },
 };
-
-const roots = [];
-function buildVariant(label, file, find, replace) {
-  const dir = mkdtempSync(join(tmpdir(), 'tune-'));
-  roots.push(dir);
-  cpSync(SRC, join(dir, 'src'), { recursive: true });
-  const path = join(dir, 'src', file);
-  const text = readFileSync(path, 'utf8');
-  if (!text.includes(find)) throw new Error(`${label}: patch target missing in ${file}: ${find}`);
-  writeFileSync(path, text.replace(find, replace));
-  return dir;
-}
-
-async function loadVariant(dir) {
-  const [ship, battle, autobuild, config] = await Promise.all([
-    import(join(dir, 'src/sim/ship.js')),
-    import(join(dir, 'src/sim/battle.js')),
-    import(join(dir, 'src/autobuild.js')),
-    import(join(dir, 'src/config.js')),
-  ]);
-  return { ship, battle, autobuild, config };
-}
 
 // The fixed grid every value replays. Sides swap on odd seeds so the orbit sense, which is
 // the same for both ships, cannot favour one seat.
@@ -204,7 +191,7 @@ async function runSweep(name) {
   console.log(`\n=== ${name}  (${sweep.file}: ${sweep.find})`);
   console.log(HEAD);
   for (const [label, replacement] of sweep.values) {
-    const mod = await loadVariant(buildVariant(label, sweep.file, sweep.find, replacement));
+    const mod = await variant(label, [[sweep.file, sweep.find, replacement]]);
     const s = summarise(grid(mod));
     console.log(
       `  ${label.padEnd(9)} ${s.time.toFixed(1).padStart(4)}s  ${s.open.toFixed(1).padStart(4)}s  ` +
@@ -215,14 +202,23 @@ async function runSweep(name) {
   }
 }
 
+// Every sweep's find-string, as checkPatches wants it.
+const asPatches = Object.fromEntries(
+  Object.entries(SWEEPS).map(([name, s]) => [name, [[s.file, s.find]]]),
+);
+
 const arg = process.argv[2];
 if (!arg) {
-  console.log('sweeps:');
+  // Listing doubles as a health check: a sweep whose target has moved is reported here rather than
+  // discovered halfway through a run.
+  checkPatches(asPatches);
+  console.log('sweeps (all patch targets resolve):');
   for (const [name, s] of Object.entries(SWEEPS)) {
     console.log(`  ${name.padEnd(18)} ${s.values.map(([l]) => l).join(' ')}`);
   }
 } else {
+  checkPatches({ [arg]: asPatches[arg] ? [[SWEEPS[arg].file, SWEEPS[arg].find]] : [] });
   for (const name of arg === 'all' ? Object.keys(SWEEPS) : [arg]) await runSweep(name);
 }
 
-for (const dir of roots) rmSync(dir, { recursive: true, force: true });
+cleanupVariants();

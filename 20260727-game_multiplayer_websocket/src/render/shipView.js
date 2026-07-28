@@ -359,7 +359,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
         }
       }
     }
-    if (!ship.byKey.get(HELM_KEY)?.alive) flag.visible = false;
+    if (!ship.helm.alive) flag.visible = false;
   }
 
   function animate(dt) {

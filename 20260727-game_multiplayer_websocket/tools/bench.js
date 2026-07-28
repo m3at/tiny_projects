@@ -9,12 +9,13 @@
 
 import * as ship from '../src/sim/ship.js';
 import * as battleMod from '../src/sim/battle.js';
+import * as gunnery from '../src/sim/gunnery.js';
 import { autoBuild, ARCHETYPES } from '../src/autobuild.js';
 import { HULLS } from '../src/data/hulls.js';
 import * as config from '../src/config.js';
-import { budgetFor, playBattle } from './lib.js';
+import { budgetFor, playBattle } from './harness.js';
 
-const mods = { ship, battle: battleMod, config };
+const mods = { ship, battle: battleMod, gunnery, config };
 const names = Object.keys(ARCHETYPES);
 
 function buildFor(hullIndex, archetype) {
@@ -41,7 +42,7 @@ for (const hullIndex of hulls) {
     for (let i = 0; i < names.length; i++) {
       for (let j = i + 1; j < names.length; j++) {
         // Fresh designs each battle, since a battle writes damage back into them.
-        const pair = [structuredClone(designs[i]), structuredClone(designs[j])];
+        const pair = [ship.cloneDesign(designs[i]), ship.cloneDesign(designs[j])];
         const out = playBattle(mods, pair, hullIndex, r * 7919 + i * 31 + j);
         simSeconds += out.time;
         battles++;

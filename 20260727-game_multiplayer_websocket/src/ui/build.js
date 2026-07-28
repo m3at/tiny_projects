@@ -6,6 +6,7 @@ import { ROUNDS, REROLL_COST, OFFER_SIZE } from '../config.js';
 import { designStats, designWarnings, placementError } from '../sim/ship.js';
 import { $, drawSchematic, setVisible } from './hud.js';
 import { attachFillButton, devFill } from '../dev.js';
+import * as audio from '../audio/play.js';
 
 // The offer is a set of part *types*, and you may buy as many of each as you can afford.
 // Filling 38 cells one card at a time would be tedious, and the interesting luck is in
@@ -60,6 +61,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
         `<div class="pcost">${part.cost}</div>`;
       card.onclick = () => {
         selected = selected === id ? null : id;
+        audio.ui('select');
         renderAllWithHint();
       };
       el.appendChild(card);
@@ -113,6 +115,12 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     $('hint').textContent = text;
   }
 
+  // A refused action says so twice: in the hint, and with a short flat tick.
+  function deny(text) {
+    audio.ui('deny');
+    setHint(text);
+  }
+
   function defaultHint() {
     if (selected === 'remove') return 'Click a part to remove it. Parts bought this round refund in full.';
     if (selected) return `Click a hull cell to place a ${PARTS[selected].name.toLowerCase()}.`;
@@ -161,8 +169,9 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     const slot = design.parts[key];
 
     if (selected === 'remove') {
-      if (!slot) return setHint('Nothing there to remove.');
-      if (PARTS[slot.id].fixed) return setHint('The helm stays where it is.');
+      if (!slot) return deny('Nothing there to remove.');
+      if (PARTS[slot.id].fixed) return deny('The helm stays where it is.');
+      audio.ui('place');
       delete design.parts[key];
       if (placedThisPhase.has(key)) {
         scrap += PARTS[slot.id].cost;
@@ -175,13 +184,14 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
       return;
     }
 
-    if (!selected) return setHint('Pick a part first.');
+    if (!selected) return deny('Pick a part first.');
 
     const part = PARTS[selected];
-    if (part.cost > scrap) return setHint(`Not enough scrap for a ${part.name.toLowerCase()}.`);
+    if (part.cost > scrap) return deny(`Not enough scrap for a ${part.name.toLowerCase()}.`);
     const err = placementError(design, hullIndex, ...key.split(',').map(Number), selected);
-    if (err) return setHint(err);
+    if (err) return deny(err);
 
+    audio.ui('place');
     design.parts[key] = { id: selected, hp: part.hp };
     placedThisPhase.add(key);
     scrap -= part.cost;

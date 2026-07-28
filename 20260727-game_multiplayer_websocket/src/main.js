@@ -20,10 +20,12 @@ import {
   recordResult,
   intelFor,
   isMatchOver,
+  roundSummary,
 } from './match.js';
 import { startBuild } from './ui/build.js';
 import { dev, devBuild } from './dev.js';
 import { createPerf } from './perf.js';
+import * as audio from './audio/play.js';
 import {
   $,
   setVisible,
@@ -49,7 +51,7 @@ const sceneCtl = createScene(canvas);
 const fx = createFx(sceneCtl.scene);
 const perf = createPerf();
 
-let match = createMatch(randomSeed(), dev.fromRound);
+let match = createMatch(dev.seed ?? randomSeed(), dev.fromRound);
 let phase = 'menu';
 let buildCtl = null;
 let battle = null;
@@ -108,7 +110,7 @@ function midpoint() {
 // ---------------------------------------------------------------------------
 
 function startMatch() {
-  match = createMatch(randomSeed(), dev.fromRound);
+  match = createMatch(dev.seed ?? randomSeed(), dev.fromRound);
   setScore(0, 0);
   startRound();
 }
@@ -157,7 +159,7 @@ function beginBuild(player) {
   // on top of whatever the earlier rounds left behind.
   const holdHere = !!dev.stopAtRound && match.roundIndex + 1 >= dev.stopAtRound;
   if (dev.autoplay && !holdHere) {
-    match.scrap[player] = devBuild(design, hullIndex, match.scrap[player], player);
+    match.scrap[player] = devBuild(design, hullIndex, match.scrap[player], player, match.seed);
     view.refresh();
   }
 
@@ -201,6 +203,7 @@ function beginBattle() {
   hideOverlay();
   phase = 'battle';
   panels('battle');
+  audio.setAmbience(true);
   clearViews();
   fx.reset();
   logPills = [];
@@ -244,17 +247,27 @@ function endRound() {
   recordResult(match, winner);
   setScore(match.scores[0], match.scores[1]);
 
-  const lines = log
-    .slice(-5)
-    .map((l) => `<b>${l.t.toFixed(0)}s</b> ${l.text}`)
-    .concat([
-      `<b>hull</b> Player 1 ${Math.round(fracs[0] * 100)}% sound, ` +
-        `Player 2 ${Math.round(fracs[1] * 100)}% sound`,
-    ]);
+  // The timeline, then a line each on what state the ships ended in. The second part is the one
+  // that explains the result: "one of six guns firing, two of eighteen hands" says the crew was too
+  // thin far more clearly than a structure percentage does.
+  const lines = log.slice(-4).map((l) => `<b>${l.t.toFixed(0)}s</b> ${l.text}`);
+  for (let i = 0; i < 2; i++) {
+    const s = roundSummary(battle.ships[i]);
+    const bits = [`${Math.round(fracs[i] * 100)}% sound`];
+    if (s.gunsHad > 0) bits.push(`${s.firing} of ${s.gunsHad} guns firing`);
+    else bits.push('no guns');
+    if (s.handsHad > 0) bits.push(`${s.hands} of ${s.handsHad} hands`);
+    if (s.powder === 0) bits.push('powder gone');
+    if (s.mastsHad > 0 && s.mastsLeft < s.mastsHad) {
+      bits.push(`${s.mastsHad - s.mastsLeft} of ${s.mastsHad} masts down`);
+    }
+    lines.push(`<b>Player ${i + 1}</b> ${bits.join(', ')}`);
+  }
 
   phase = 'result';
   panels('menu');
   setTimer(null);
+  audio.setAmbience(false);
   battle = null;
 
   if (isMatchOver(match)) {
@@ -291,10 +304,18 @@ function endRound() {
 // input
 // ---------------------------------------------------------------------------
 
+function toggleMute() {
+  const off = audio.setMuted(!audio.isMuted());
+  const btn = $('btn-mute');
+  btn.textContent = off ? 'Sound off' : 'Sound on';
+  btn.classList.toggle('off', off);
+}
+
 function setAmmo(player, ammo) {
   if (phase !== 'battle' || !battle || battle.over) return;
   battle.setAmmo(player, ammo);
   setAmmoButtons(player, ammo);
+  audio.ui('tick');
 }
 
 document.querySelectorAll('.ammo-btn').forEach((btn) => {
@@ -307,6 +328,7 @@ addEventListener('keydown', (e) => {
   const flip = (p) => battle && setAmmo(p, battle.ships[p].ammo === 'round' ? 'grape' : 'round');
   if (k === 'a') flip(0);
   else if (k === 'l') flip(1);
+  else if (k === 'm') toggleMute();
   else if (k === 'enter' && !$('overlay').classList.contains('hidden')) $('ov-btn').click();
   else if (k === ' ' && phase === 'build') {
     e.preventDefault();
@@ -323,11 +345,17 @@ addEventListener('resize', () => sceneCtl.resize());
 let last = performance.now();
 
 function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const elapsed = (now - last) / 1000;
+  // The simulation and every animation get a clamped step, so one long frame cannot teleport a
+  // ship across the arena. The build countdown gets the real elapsed time instead: it is a promise
+  // to the player about seconds, and clamping made a laggy machine hand out a longer build phase
+  // than a fast one. Both stop when the tab does, which is the behaviour you want when someone
+  // switches away mid-build.
+  const dt = Math.min(0.05, elapsed);
   last = now;
   const t0 = performance.now();
   try {
-    update(dt);
+    update(dt, elapsed);
   } catch (err) {
     // One bad frame should not freeze the match.
     console.error('frame error', err);
@@ -375,6 +403,7 @@ function stepBattle(dt) {
   for (const e of battle.effects) {
     if (e.type === 'detonate') shake = SHAKE_ON_DETONATION;
   }
+  audio.consume(battle.effects);
   fx.consume(battle.effects);
   battle.effects.length = 0;
   setTimer(BATTLE_CAP - battle.time);
@@ -385,8 +414,8 @@ function stepBattle(dt) {
   fx.update(dt, battle.projectiles);
 }
 
-function update(dt) {
-  if (phase === 'build' && buildCtl) stepBuild(dt);
+function update(dt, elapsed = dt) {
+  if (phase === 'build' && buildCtl) stepBuild(elapsed);
   else if (phase === 'battle' && battle) stepBattle(dt);
 
   if (!(phase === 'battle' && battle && battle.over)) {
@@ -422,6 +451,8 @@ globalThis.__game = {
 // ---------------------------------------------------------------------------
 // boot
 // ---------------------------------------------------------------------------
+
+$('btn-mute').onclick = toggleMute;
 
 sceneCtl.frame(0, 0, 60, true);
 sceneCtl.setWind(0.6);

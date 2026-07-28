@@ -28,12 +28,13 @@
 
 import * as ship from '../src/sim/ship.js';
 import * as battleMod from '../src/sim/battle.js';
+import * as gunnery from '../src/sim/gunnery.js';
 import { autoBuild, ARCHETYPES } from '../src/autobuild.js';
 import { HULLS } from '../src/data/hulls.js';
 import * as config from '../src/config.js';
-import { pct, budgetFor, measureBattle } from './lib.js';
+import { pct, budgetFor, measureBattle } from './harness.js';
 
-const mods = { ship, battle: battleMod, config };
+const mods = { ship, battle: battleMod, gunnery, config };
 const names = Object.keys(ARCHETYPES);
 
 function buildFor(hullIndex, archetype) {

@@ -11,7 +11,7 @@ import { PARTS, repairCost } from '../src/data/parts.js';
 import { HULLS } from '../src/data/hulls.js';
 import { ROUNDS, TICK, POINTS_TO_WIN, loserBonus } from '../src/config.js';
 import { makeRng, hashSeed } from '../src/sim/rng.js';
-import { applyBotAmmo } from './lib.js';
+import { makeBot } from './bot.js';
 
 const VERBOSE = process.argv[3] === 'verbose';
 const MATCHES = Number(process.argv[2] || 10);
@@ -56,11 +56,12 @@ function playMatch(seed, types) {
       windTo: makeRng(hashSeed(seed, r, 77)).next() * Math.PI * 2,
     });
 
+    const bot = makeBot(battle);
     let guard = 0;
     while (!battle.over && guard++ < 60 / TICK) {
-      applyBotAmmo(battle, battle.ships[0], battle.ships[1]);
-      applyBotAmmo(battle, battle.ships[1], battle.ships[0]);
+      bot.update(TICK);
       battle.advance(TICK);
+      battle.effects.length = 0;
     }
     const fracs = [structureFraction(battle.ships[0]), structureFraction(battle.ships[1])];
     battle.finish();

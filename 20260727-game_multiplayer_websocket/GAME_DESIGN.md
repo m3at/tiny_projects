@@ -104,9 +104,15 @@ line) a mast does nothing. The build readout states the number, because sampling
 showed the ship with more masts winning only 36% of the time. A cap the player cannot see is a
 cap they pay for.
 
-Guns need gunners. Crew quarters supply a pool; guns are manned in placement order and any
-gun left without crew stays silent. No live magazine means no gun fires at all — one
-magazine is a gamble, two is insurance.
+Guns need gunners. Crew quarters supply a pool, the sails take their hands out of it first, and
+what is left mans the guns — starting with the battery that will actually bear, because hands go
+where the fighting is. A gun left without crew stays silent. No live magazine means no gun fires at
+all: one magazine is a gamble, two is insurance.
+
+Manning the engaged side first matters more than it sounds. Before it, a ship with crew for half its
+guns could have every one of those hands on the flank the fight was not on, and spend the whole
+battle unable to fire a shot — which is exactly what a probe built by hand did for forty seconds
+before anyone noticed.
 
 The shop offers five part types per build phase and you may buy as many of each as you can
 afford; buying 38 cells one card at a time would be tedious, and the interesting luck is in
@@ -230,6 +236,14 @@ Two rules do most of the storytelling, and neither is there for balance.
 In practice a magazine goes up in about a quarter of battles and something is dismasted in
 most of them.
 
+### Reading the result
+
+The round screen carries the last few log lines and then a line on each ship: how sound it is, how
+many of its guns are still firing, how many hands are left, whether the powder is gone, how many
+masts came down. A log says what happened; that line says which decision was wrong. "One of six
+guns firing, two of eighteen hands" tells a player their crew was too thin far more directly than a
+structure percentage does.
+
 ### Ending a round
 
 - Helm destroyed, or every cell gone: immediate loss.
@@ -302,6 +316,20 @@ Small things, all cheap:
 - A status panel flashes only when something aboard actually breaks. It used to flash on every
   graze, which on a ship of the line meant permanently, which meant nothing.
 
+Sound is synthesised live — there are no audio files, and the project stays a directory of text. A
+cannon is three layers (a bandpassed crack, a sine dropping 150 to 42 Hz, and a lowpass sweeping down
+for air absorption); a ball into timber is a click exciting three inharmonic resonances, which is what
+makes it wood rather than a xylophone; a splash rises in pitch, because a collapsing bubble does and a
+falling sweep sounds like a gunshot; a magazine is not a louder cannon but a longer, lower sweep with a
+second punch and debris. Sea and wind sit at the edge of audible so the quiet between volleys does not
+sound like the game has stopped.
+
+A ship of the line fires sixteen guns, so each kind of sound has a minimum spacing and anything
+arriving inside it is dropped — one voice per event is mud. Everything ends in a limiter: measured,
+twelve simultaneous cannons clip without it and peak at 0.75 with it. `node tools/audio.js` renders
+every sound through an offline context and reports peak, DC offset, clipping and how abruptly each one
+leaves silence, which is the only way to catch a click or a clip without ears.
+
 The chrome is square: no rounded corners anywhere. Panels are framed with a double rule — an
 outer hairline, a dark gutter, an inner hairline — the way a chart is ruled, and accent colour
 arrives as a rule along one edge rather than as a soft-cornered pill. Type is three families and
@@ -330,15 +358,22 @@ clicking through two build phases per round.
 | --- | ------ |
 | `?dev=1` | manual play, plus a Fill button in the build panel |
 | `?dev=brawler,sniper` | both sides auto-built each round, overlays auto-advance |
+| `?dev=draft` | autoplay, both ships drafted at random each round, which looks like a real match |
+| `&seed=1234` | pin the match seed, so a playthrough replays exactly |
 | `&x=3` | run at 3x speed |
 | `&round=5` | start at round 5, with the scrap the earlier rounds would have granted |
 | `&stop=2` | autoplay round 1, then hold round 2's build phase open, purse unspent |
 | `&hold=1` | autoplay, but stop on each result screen |
 | `&loop=1` | keep starting fresh matches (off by default) |
 
-Archetypes: `brawler`, `massed`, `sniper`, `harasser`, `crusher`, `mixed`. Autoplay stops after
-one match — looping for ever pins a CPU core, which is exactly what a forgotten headless tab
-once did.
+Archetypes: `brawler`, `massed`, `sniper`, `harasser`, `crusher`, `mixed`. Autoplay stops after one
+match — looping for ever pins a CPU core, which is exactly what a forgotten headless tab once did.
+
+With `?dev` on, `__dev` also exposes the build phase to a headless driver: `clickCell(dx, dz)`
+projects a hull cell to screen and dispatches real pointer events, `pickCard(name)` selects an
+offered part, `tool(id)` presses reroll or refit, and `state()` returns everything on screen as one
+readable object. Build-phase clicks are raycasts against a WebGL canvas, so there is nothing in the
+DOM for a test to click; this is how the game gets playtested rather than only watched.
 
 ### Tuning
 

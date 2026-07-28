@@ -232,8 +232,22 @@ button.primary:hover {
   height: 46px;
 }
 
-.timer {
+.mute {
   margin-left: auto;
+  pointer-events: auto;
+  font-size: var(--fs-1);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 5px 9px;
+  color: var(--dim);
+}
+.mute.off {
+  color: var(--sinking);
+  border-color: rgba(224, 122, 100, 0.4);
+}
+
+.timer {
+  margin-left: 18px;
   font: 400 var(--fs-6) / 1 var(--font-display);
   font-variant-numeric: tabular-nums;
   min-width: 62px;
@@ -589,6 +603,8 @@ button.primary:hover {
   margin: 0 0 12px;
   font: 400 var(--fs-6) / 1.1 var(--font-display);
   letter-spacing: 0.05em;
+  /* Keeps "Player 1 takes the day" from leaving one word alone on a second line. */
+  text-wrap: balance;
 }
 .overlay p {
   color: var(--dim);

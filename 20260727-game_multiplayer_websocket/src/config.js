@@ -115,6 +115,13 @@ export function windFactor(heading, windTo) {
   return WIND_MIN + ((1 - WIND_MIN) * (Math.cos(heading - windTo) + 1)) / 2;
 }
 
+// The same thing from cached sines and cosines, via cos(h - w) = cos h cos w + sin h sin w. The
+// simulation already holds the heading's pair and computes the wind's once per battle, so this runs
+// two multiplications instead of a cosine, every ship every tick.
+export function windFactorFrom(cosH, sinH, cosW, sinW) {
+  return WIND_MIN + ((1 - WIND_MIN) * (cosH * cosW + sinH * sinW + 1)) / 2;
+}
+
 // How far out a ship wants to fight, as a fraction of its weapons' reach. Below 1 so guns
 // stay comfortably in range rather than flickering at the edge of it.
 export const PREFERRED_RANGE_FRACTION = 0.85;
