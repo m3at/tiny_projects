@@ -6,7 +6,7 @@
 // Both take a `mods` bundle rather than importing src/ directly, so tools/variant.js can substitute
 // a patched copy of the source tree. Build one with variant.js, or hand in the real modules.
 
-import { makeBot, REACTION } from './bot.js';
+import { makeBot, REACTION } from '../src/bot.js';
 
 export const pct = (n) => `${(n * 100).toFixed(0)}%`;
 
@@ -34,7 +34,7 @@ function start(mods, designs, hullIndex, seed, opts) {
     seed,
     windTo: opts.windTo ?? windForSeed(seed),
   });
-  return { battle, bot: makeBot(battle, opts.grape === false ? 'round' : 'grape') };
+  return { battle, bot: makeBot(battle, { mode: opts.grape === false ? 'round' : 'grape' }) };
 }
 
 // Run to a conclusion. Steps in the bot's reaction interval rather than tick by tick: advance()

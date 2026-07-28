@@ -1,5 +1,10 @@
 // The stand-in for a player during a battle. The only live input is the ammunition toggle, so this
-// is the whole of it.
+// is the whole of it. It pairs with autobuild.js, which is the stand-in for the build phase, and
+// lives here for the same reason: both the headless harnesses and the in-browser dev autoplay need
+// it. While it sat in tools/ the browser had no player at all, so an autoplayed match never once
+// switched to grape -- which is the game's only live decision and 15% of its outcomes.
+//
+// Outside sim/, because it is an input source rather than part of the deterministic core.
 //
 // Grape only pays while there is a crew left to break and guns for them to leave silent. Once the
 // enemy deck is quiet, or its crew is too deep to shoot away, round shot is what sinks a ship: the
@@ -27,10 +32,15 @@ export function chooseAmmo(me, enemy) {
   return enemy.crew <= 6 || best <= 2 ? 'grape' : 'round';
 }
 
-// Drives both sides. `mode` is 'grape' for the normal bot or 'round' to pin both to round shot,
-// which is how tools/ablate.js measures what the live decision is worth.
-export function makeBot(battle, mode = 'grape') {
+// Drives both sides.
+//
+//   mode   'grape' for the normal bot, or 'round' to pin both to round shot, which is how
+//          tools/ablate.js measures what the live decision is worth.
+//   apply  how to deliver the choice. Defaults straight to the simulation; the game passes its own,
+//          so the ammunition buttons light up as the bot works them.
+export function makeBot(battle, { mode = 'grape', apply } = {}) {
   const [a, b] = battle.ships;
+  const set = apply || ((index, ammo) => battle.setAmmo(index, ammo));
   let due = 0;
 
   return {
@@ -39,12 +49,12 @@ export function makeBot(battle, mode = 'grape') {
       if (due > 0) return;
       due = REACTION;
       if (mode === 'round') {
-        battle.setAmmo(0, 'round');
-        battle.setAmmo(1, 'round');
+        set(0, 'round');
+        set(1, 'round');
         return;
       }
-      battle.setAmmo(0, chooseAmmo(a, b));
-      battle.setAmmo(1, chooseAmmo(b, a));
+      set(0, chooseAmmo(a, b));
+      set(1, chooseAmmo(b, a));
     },
   };
 }

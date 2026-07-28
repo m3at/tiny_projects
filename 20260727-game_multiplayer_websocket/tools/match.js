@@ -11,7 +11,7 @@ import { PARTS, repairCost } from '../src/data/parts.js';
 import { HULLS } from '../src/data/hulls.js';
 import { ROUNDS, TICK, POINTS_TO_WIN, loserBonus } from '../src/config.js';
 import { makeRng, hashSeed } from '../src/sim/rng.js';
-import { makeBot } from './bot.js';
+import { makeBot } from '../src/bot.js';
 
 const VERBOSE = process.argv[3] === 'verbose';
 const MATCHES = Number(process.argv[2] || 10);

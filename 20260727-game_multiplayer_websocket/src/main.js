@@ -24,6 +24,7 @@ import {
 } from './match.js';
 import { startBuild } from './ui/build.js';
 import { dev, devBuild } from './dev.js';
+import { makeBot } from './bot.js';
 import { createPerf } from './perf.js';
 import * as audio from './audio/play.js';
 import {
@@ -57,6 +58,9 @@ let buildCtl = null;
 let battle = null;
 const views = [null, null];
 let logPills = [];
+// Only in dev autoplay: something has to work the ammunition, or the one live decision in the game
+// never happens and an autoplayed match is not representative of a played one.
+let bot = null;
 let shownLogCount = 0;
 let endTimer = 0;
 let shake = 0;
@@ -227,6 +231,7 @@ function beginBattle() {
     views[i].syncFromBattle(battle.ships[i]);
     setAmmoButtons(i, 'round');
   }
+  bot = dev.autoplay ? makeBot(battle, { apply: setAmmo }) : null;
   updateBattlePanels(battle);
   const mid = midpoint();
   sceneCtl.frame(mid.x, mid.z, mid.size, true);
@@ -268,6 +273,7 @@ function endRound() {
   panels('menu');
   setTimer(null);
   audio.setAmbience(false);
+  bot = null;
   battle = null;
 
   if (isMatchOver(match)) {
@@ -399,6 +405,7 @@ function stepBattle(dt) {
     return;
   }
 
+  if (bot) bot.update(dt * dev.speed);
   battle.advance(dt * dev.speed);
   for (const e of battle.effects) {
     if (e.type === 'detonate') shake = SHAKE_ON_DETONATION;
