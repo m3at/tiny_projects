@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { SEA, LIGHT } from '../theme.js';
 import { createSea } from './sea.js';
+import { createGpuTimer } from './gpuTimer.js';
 import { createQuality } from './quality.js';
 
 const TILT = (60 * Math.PI) / 180; // from horizontal
@@ -19,6 +20,11 @@ const CAMERA_DISTANCE = 300; // irrelevant to scale under orthographic; just cle
 // visibly soft, so that is the floor: past it, a device simply gets fewer than 60 frames.
 const SCALES = [1, 0.85, 0.72, 0.6, 0.5];
 const MAX_RATIO = 2; // past this the extra pixels buy nothing you can see on any current display
+// Start within a 1080p-sized fill budget. Without this, a 4K screen or a Retina laptop begins at
+// 5-8 million pixels and spends one quality window at each step discovering the obvious. The sea is
+// fill-bound and fill.js shows near-linear cost, so CSS area is enough to avoid those first seconds
+// of missed frames without a device database.
+const MAX_PIXELS = 1920 * 1080;
 
 export function createScene(canvas) {
   // Nothing draws to the stencil buffer, so the context does not have to allocate one. On a
@@ -30,23 +36,28 @@ export function createScene(canvas) {
   // expensive", because an RGB back buffer often has to be emulated on top of an RGBA surface. The
   // opaque pass already writes 1.0 to alpha, which is what that page recommends doing instead.
   //
-  // `antialias: true` stays, and the instinct to trade it for resolution is backwards on a tiler:
-  // MSAA samples never leave tile memory, so 4x MSAA measures about +23% on a Pixel 6 while 2x
-  // supersampling through the pixel ratio is +300% for comparable edges. If quality has to give,
-  // it gives through the resolution scale below, never through this.
+  // No MSAA. The scene is already drawn at up to two device pixels per CSS pixel, while default
+  // framebuffer MSAA multiplied its dominant full-screen pass as well as the few edges that need
+  // smoothing. Measured through Metal at 1080p: 0.37ms with it, 0.067ms without it. One consistent
+  // path is also easier to reason about than a context option that cannot be changed after creation.
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: true,
+    antialias: false,
     stencil: false,
     powerPreference: 'high-performance',
   });
+  const gpuTimer = createGpuTimer(renderer.getContext());
 
   // Mobile loses the GL context routinely -- backgrounding, memory pressure, a driver reset -- and
   // without these the canvas simply stays black for the rest of the session. Preventing the default
   // on loss is what allows a restore to be delivered at all. three.js rebuilds its own resources on
   // restore, so there is nothing else to do here.
-  canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
+  canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    gpuTimer.contextLost();
+  });
   canvas.addEventListener('webglcontextrestored', () => {
+    gpuTimer.contextRestored(renderer.getContext());
     renderer.setClearColor(SEA.water);
     lastWidth = 0; // forget the cached size so resize() actually reapplies it
     resize();
@@ -97,15 +108,20 @@ export function createScene(canvas) {
 
   let appliedRatio = -1;
 
+  function renderRatio(w, h, scale = quality.scale) {
+    return Math.min(deviceRatio, Math.sqrt(MAX_PIXELS / (w * h))) * scale;
+  }
+
   function applySize(w, h) {
     if (!w || !h) return;
-    const ratio = deviceRatio * quality.scale;
+    const ratio = renderRatio(w, h);
     if (w === lastWidth && h === lastHeight && ratio === appliedRatio) return;
     lastWidth = w;
     lastHeight = h;
     appliedRatio = ratio;
-    renderer.setPixelRatio(ratio);
-    renderer.setSize(w, h, false);
+    // setPixelRatio() calls setSize() internally, so following it with setSize() reallocates and
+    // clears the drawing buffer twice. setDrawingBufferSize() applies all three values in one pass.
+    renderer.setDrawingBufferSize(w, h, ratio);
     updateProjection();
   }
 
@@ -140,13 +156,9 @@ export function createScene(canvas) {
   const quality = createQuality({
     steps: SCALES,
     onChange: (scale) => {
-      renderer.setPixelRatio(deviceRatio * scale);
-      renderer.setSize(lastWidth, lastHeight, false);
-      appliedRatio = deviceRatio * scale;
-      // Decoration goes before sharpness does. The sea's second noise layer is the most expensive
-      // optional thing in the scene and the least load-bearing, so it is dropped at the first sign
-      // of trouble, one step before the whole image starts getting soft.
-      seaU.uRich.value = scale === SCALES[0] ? 1 : 0;
+      const ratio = renderRatio(lastWidth, lastHeight, scale);
+      renderer.setDrawingBufferSize(lastWidth, lastHeight, ratio);
+      appliedRatio = ratio;
     },
   });
 
@@ -218,14 +230,25 @@ export function createScene(canvas) {
     },
 
     render() {
-      renderer.render(scene, camera);
+      gpuTimer.begin();
+      try {
+        renderer.render(scene, camera);
+      } finally {
+        gpuTimer.end();
+      }
+      return gpuTimer.poll();
     },
 
-    adapt: (now, frameMs) => quality.sample(now, frameMs),
+    adapt: (now, frameMs, gpuSamples) =>
+      quality.sample(now, frameMs, gpuSamples, gpuTimer.supported),
     setAdaptive: (on) => quality.setEnabled(on),
 
     get renderScale() {
       return quality.scale;
+    },
+
+    get qualityState() {
+      return quality.state;
     },
 
     resize,

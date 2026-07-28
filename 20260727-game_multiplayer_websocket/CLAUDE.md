@@ -33,6 +33,7 @@ node tools/mix.js           what the mixer hears across real battles: drops, bur
 node tools/frames.js        frame times as a distribution, per phase; stutter lives in the tail
 node tools/profile.js       browser CPU profile of the real page, software rasterising excluded
 node tools/fill.js          what each layer of the scene costs to draw, and how it scales
+node tools/quality.js       adaptive resolution: GPU pressure, fallback and recovery
 node tools/playtest.js      plays a whole match through the real interface and complains
 node tools/golden.js        fingerprint 900 battles; diff it across a refactor
 node tools/shot.js out.png "800 ;; ovBtn() ;; 400" "?dev=brawler,crusher&round=5"
@@ -338,7 +339,7 @@ src/shipyard.js    the rules of fitting out: cost, legality, refunds. Pure, and 
 src/autobuild.js   greedy ship builder: bot opponent and the dev Fill button
 src/bot.js         the ammunition decision, for bots and for absent players
 src/dev.js         URL-driven dev harness, inert without ?dev
-src/perf.js        frame stats, always on: an EMA for scale, percentiles for the tail
+src/perf.js        wall, JavaScript and asynchronous GPU frame distributions
 src/main.js        presentation and flow: overlays, camera, input, render loop
 
 src/net/           the networked game, and the local one
@@ -353,7 +354,8 @@ server/            the host process. Node, no dependencies
   ws.js            RFC 6455, by hand: handshake, framing, fragments, ping, close
 src/render/        three.js scene, ship meshes, particles, glyph textures
   sea.js           the sea, the wind and the arena ring, as one full-screen triangle
-  quality.js       the adaptive resolution control loop, kept apart from the scene
+  gpuTimer.js      non-blocking GPU timer queries, optional and context-loss safe
+  quality.js       GPU-aware adaptive resolution, wall-time fallback
 src/audio/sfx.js   every sound, synthesised. Takes a context, so it renders offline for testing
 src/audio/play.js  when to make a noise: voice spacing, stereo placement, mute, the gesture unlock
 src/ui/            build-phase panel, HUD chrome
@@ -373,6 +375,7 @@ src/sim/           the deterministic battle core, one file per question
 tools/             headless harnesses and the CDP driver
   cdp.js           one DevTools client for every tool that drives the real browser
   harness.js       playBattle (outcomes) and measureBattle (what it looked like)
+  quality.js       deterministic checks for the adaptive-resolution policy
   bot.js           the stand-in player: the ammunition decision, and its reaction interval
   variant.js       run the sim with src/ patched in a temp dir, for ablate.js and tune.js
   golden.js        determinism guard; record before refactoring, diff after
@@ -571,13 +574,13 @@ switches off the hidden-surface removal the architecture is built around. Notes 
 - The vertex shader has no matrix. An orthographic projection has no perspective divide, so screen
   to the y=0 plane is a scale and an offset; checked against a real unproject-and-raycast at 1e-13
   world units. The z term carries the 60-degree foreshortening.
-- Wind falls out for free by squashing isotropic noise about 7:1 along the wind axis. The thing 420
-  quads existed to convey is two noise lookups and a rotation.
+- Wind falls out for free by stretching a sparse cellular field about 7:1 along the wind axis. The
+  thing 420 quads existed to convey is one hash per soft streak cell and a rotation.
 - Threshold high. The first pass banded the whole range and the sea fought the ships for attention;
   only the crests catch light now. Legibility is the constraint on a game board, not prettiness.
 - No `sin()` in the hash. `sin` is not bit-specified in GLSL ES, so the popular
   `fract(sin(dot(...)))` hash gives different water on different GPUs, and its argument overflows
-  mediump. Value noise after iq (MIT) instead.
+  mediump. An arithmetic hash makes the field stable across GPUs.
 - Time is wrapped on the CPU and the uniform is `highp`. A plain seconds-since-load clock in
   mediump loses a frame of resolution by about 32 seconds and the water starts to judder.
 - Aliasing is handled without `fwidth`: under this camera world-units-per-pixel is the same
@@ -586,15 +589,17 @@ switches off the hidden-surface removal the architecture is built around. Notes 
   conversion. One tap of uniform noise does not remove banding, and dithering before the conversion
   gets quantised away.
 
-Unsettled, and it needs a real phone: the software rasteriser prices this shader *above* the quads
-it replaced, because it penalises per-pixel arithmetic heavily and cannot show the blending penalty
-that makes the quads bad on a tiler. The reasoning says the shader wins on real hardware; the
-measurement here says it loses. That is why the second noise layer is the first thing the adaptive
-controller drops -- decoration degrades before sharpness does.
+The absolute software-rasteriser number is not a GPU number. With Chrome explicitly running through
+ANGLE Metal on an M3, the complete no-MSAA frame measures about 0.14ms at 1080p and remains far below
+budget at 4K. SwiftShader is still useful for paired layer costs and stress, not for predicting a
+phone's milliseconds.
 
-Adaptive resolution is what actually promises 60fps, because frame cost is very nearly linear in
-pixel count and no amount of tidying changes that. `scene.js` counts late frames over one-second
-windows and steps the rendering scale down as soon as a quarter of them missed.
+Adaptive resolution is what promises 60fps on hardware not yet measured, because frame cost is very
+nearly linear in pixel count. `gpuTimer.js` samples one frame in four with
+`EXT_disjoint_timer_query_webgl2`; results arrive asynchronously and never stall the pipeline.
+`quality.js` follows sustained GPU time when those samples exist. A late frame with a 2ms GPU is a
+CPU, browser or scheduler problem, and lowering resolution cannot fix it. Browsers without the
+extension -- including the project's SwiftShader harness -- retain the wall-time controller.
 
 Stepping back *up* is the hard half, and hysteresis alone does not do it. With a fixed four-window
 delay the controller pumped between 0.5 and 0.6 for as long as it was watched: a machine that lands
@@ -621,10 +626,11 @@ Material choice is the second lever, and the folklore about it is wrong:
 - Measured, ships alone at 1280x720: 4.08ms with Standard, 2.888ms with Lambert, 29% off that
   layer. Visually free -- swapping the materials on one frozen frame moved 0.3% of pixels and not
   one of them by more than 9 of 255.
-- Keep `antialias: true`. Trading MSAA for resolution is backwards on a tile-based mobile GPU,
-  where MSAA samples never leave tile memory: 4x MSAA measures about +23% on a Pixel 6, while 2x
-  supersampling through the pixel ratio is +300% for comparable edges. Quality gives through the
-  resolution scale, never through this.
+- Default-framebuffer MSAA is deliberately off. The scene already renders at up to two device
+  pixels per CSS pixel, and MSAA applies its storage and resolve cost to the full-screen sea just to
+  improve a few diagonal hull edges. Paired through ANGLE Metal: 0.37ms to 0.067ms at 1080p and
+  1.05ms to 0.097ms at 4K. The 1x capture only showed modest stair-stepping; high-density phones
+  hide more of it. One no-MSAA path also avoids an immutable context option in the quality policy.
 - Do *not* set `alpha: false`, which looks like a saving and is not. MDN's WebGL best practices has
   a section headed "Avoid alpha:false, which can be expensive": an RGB back buffer often has to be
   emulated over an RGBA surface. `stencil: false` is a genuine saving and is set.
@@ -700,9 +706,10 @@ Two consolidations worth not undoing:
   not fewer lines overall -- the module is about as long as what it removed -- but the gotchas are
   written down once instead of being rediscovered per tool, and two of the five had already
   forgotten to disable the cache.
-- **`render/quality.js` holds the adaptive-resolution policy**, and `scene.js` only applies it.
-  A control loop that reacts to its own effect is where the bugs live, and it was crowding out the
-  file that is supposed to be about the scene.
+- **`render/quality.js` holds the adaptive-resolution policy**, `gpuTimer.js` obtains its preferred
+  signal without blocking, and `scene.js` only applies the chosen scale. A control loop that reacts
+  to its own effect is where the bugs live, and it was crowding out the file that is supposed to be
+  about the scene. `tools/quality.js` holds the decisions independent of browser noise.
 
 ## Gotchas already paid for
 
@@ -767,6 +774,10 @@ Networking and the melee added these:
   the page must do the same or it will measure the previous edit.
 - Headless is software-rasterised, so a CPU profile of the page is 98% `(program)` with no stack.
   `tools/profile.js` excludes it and renormalises, which is the only way the JavaScript is legible.
+- SwiftShader does not expose `EXT_disjoint_timer_query_webgl2` in the project harness. Seeing
+  `gpu unavailable` from `tools/frames.js` is the tested wall-time fallback, not broken telemetry.
+- GPU timer results describe an older sampled frame. Keep them in their own distribution; pairing
+  one with the current frame's JavaScript or wall time invents a relationship that does not exist.
 - `perf.sample` used to be handed the *clamped* step, so on any machine slower than 20fps every
   frame recorded as exactly 50ms and the tail was invisible. It takes real elapsed time now.
 - `tools/shot.js` steps: a bare number waits ms, `@file.js` evaluates a file in the page

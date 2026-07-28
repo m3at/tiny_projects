@@ -59,6 +59,7 @@ node tools/audio.js     render every sound offline: clipping, DC offset, onset c
 node tools/mix.js       what the mixer actually hears once a battle is shouting at it
 node tools/frames.js    frame times as a distribution, because stutter lives in the tail
 node tools/fill.js      what each layer of the scene costs to draw, one at a time
+node tools/quality.js   adaptive resolution: GPU pressure, fallback and recovery
 node tools/playtest.js  plays a whole match through the real interface and complains
 ```
 

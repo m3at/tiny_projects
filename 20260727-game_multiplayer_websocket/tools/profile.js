@@ -10,10 +10,9 @@
 //
 // Two caveats, both important when reading the numbers:
 //
-//   Headless rendering is software-rasterised and roughly 3x slower than a real GPU, so the
-//   absolute cost of the draw is meaningless here. What survives the difference is the JavaScript:
-//   allocation, rebuild work, DOM writes. Those are what stutter is usually made of, and they are
-//   measured honestly.
+//   The normal dev helper is software-rasterised, while a manually launched hardware Chrome spends
+//   most samples idle or waiting outside JavaScript. In both cases `(program)` has no useful stack.
+//   What survives either setup is the JavaScript: allocation, rebuild work and DOM writes.
 //
 //   A sampling profiler reports where time was spent, not where it was *lost*. A garbage collection
 //   pause shows up as (garbage collector) self time, which is a symptom; the cause is whoever
@@ -69,16 +68,16 @@ for (let i = 0; i < samples.length; i++) {
 
 const rows = [];
 let totalUs = 0;
-let rasterUs = 0;
+let excludedUs = 0;
 for (const [id, us] of self) {
   const node = byId.get(id);
   if (!node) continue;
   const f = node.callFrame;
   const name = f.functionName || '(anonymous)';
-  // Headless draws on the CPU, and the rasteriser lands in (program) with no stack. It swamps
-  // everything -- 98% of a battle profile -- and tells us nothing, since a real GPU does that work.
+  // SwiftShader rasterising and hardware Chrome waiting both land in these root buckets with no
+  // actionable JavaScript stack. GPU duration is measured separately by perf's timer queries.
   if (name === '(program)' || name === '(idle)') {
-    rasterUs += us;
+    excludedUs += us;
     continue;
   }
   totalUs += us;
@@ -89,7 +88,7 @@ rows.sort((a, b) => b[1] - a[1]);
 
 console.log(
   `\n  ${(totalUs / 1000).toFixed(0)}ms of JavaScript over ${SECONDS}s ` +
-    `(${(rasterUs / 1000).toFixed(0)}ms of software rasterising excluded)\n`,
+    `(${(excludedUs / 1000).toFixed(0)}ms of idle/unattributed time excluded)\n`,
 );
 console.log('  self time  share  function');
 for (const [label, us] of rows.slice(0, 28)) {

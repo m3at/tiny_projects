@@ -558,6 +558,7 @@ addEventListener('resize', () => sceneCtl.resize());
 // ---------------------------------------------------------------------------
 
 let last = performance.now();
+let gpuSamples = [];
 
 function loop(now) {
   const elapsed = (now - last) / 1000;
@@ -575,11 +576,17 @@ function loop(now) {
     console.error('frame error', err);
   }
   const t1 = performance.now();
-  sceneCtl.render();
+  // Adaptive quality can resize the drawing buffer. Do that before the draw which presents it:
+  // resizing after render clears the buffer and leaves the compositor a chance to show that clear
+  // (the brief black frame seen on a quality step) before the next requestAnimationFrame.
+  sceneCtl.adapt(now, elapsed * 1000, gpuSamples);
+  // Render tools temporarily replace render() with a no-op while they drive the renderer directly.
+  // Treat a transport/tool wrapper with no timing result exactly like a frame whose query is pending.
+  gpuSamples = sceneCtl.render() ?? [];
+  for (const ms of gpuSamples) perf.sampleGpu(ms);
   // The real gap, not the clamped step. Passing dt here made every frame on a slow machine read as
   // exactly 50ms, which is the clamp rather than a measurement, and hid the tail completely.
   perf.sample(t1 - t0, performance.now() - t1, elapsed);
-  sceneCtl.adapt(now, elapsed * 1000);
   requestAnimationFrame(loop);
 }
 

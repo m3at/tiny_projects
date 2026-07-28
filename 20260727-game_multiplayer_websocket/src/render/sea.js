@@ -23,7 +23,7 @@
 //
 // The pattern is squashed along the wind axis. Stretching isotropic noise 7:1 turns blobs into
 // wind-aligned streaks for free, which is the entire trick: the thing the 420 quads existed to
-// convey now falls out of two noise lookups.
+// convey now falls out of one noise lookup.
 
 import * as THREE from 'three';
 import { ARENA_RADIUS } from '../config.js';
@@ -52,7 +52,6 @@ const FRAG = /* glsl */ `
   uniform vec2 uWind;    // unit vector the wind blows towards, in world xz
   uniform float uTime;   // seconds, wrapped on the CPU so it never grows large
   uniform float uDetail; // 0 when a streak is too small to resolve, 1 when it is comfortable
-  uniform float uRich;   // 1 for both noise layers, 0 for one. A quality step, see scene.js.
   uniform float uPx;     // world units per device pixel; the camera makes this constant on screen
   uniform float uScale;  // REF_VIEW / viewSize, so a streak keeps its size on screen as we zoom
   uniform vec2 uRing;    // arena boundary: centreline radius, half thickness
@@ -61,23 +60,28 @@ const FRAG = /* glsl */ `
   uniform vec3 uFoam;
   varying vec2 vWorld;
 
-  // Value noise after Inigo Quilez (iquilezles.org/articles/gradientnoise, MIT). Deliberately no
-  // sin() in the hash: sin is not bit-specified in GLSL ES, so the popular fract(sin(dot(...)))
-  // hash gives visibly different water on different GPUs, and its argument overflows mediump.
+  // Deliberately no sin() in the hash: sin is not bit-specified in GLSL ES, so the popular
+  // fract(sin(dot(...))) form gives visibly different water on different GPUs, and its argument
+  // overflows mediump.
   float hash(vec2 p) {
     p = 50.0 * fract(p * 0.3183099 + vec2(0.71, 0.113));
     return -1.0 + 2.0 * fract(p.x * p.y * (p.x + p.y));
   }
 
-  float vnoise(vec2 x) {
+  // One elongated cell is one patch of foam. A random offset per crosswind row breaks up the grid,
+  // and soft edges make the cells join as streaks. This costs two hashes rather than value noise's
+  // four hashes plus a quintic interpolation, while retaining the only information the field needs
+  // to convey: direction and speed.
+  float streakField(vec2 x) {
+    float row = floor(x.y);
+    // Irrational row stepping is enough to avoid aligned starts and costs a multiply plus fract;
+    // hashing the row was a second full hash in every fragment for no visible benefit.
+    x.x += fract(row * 0.61803398875) * 5.0;
     vec2 p = floor(x);
-    vec2 w = fract(x);
-    vec2 u = w * w * w * (w * (w * 6.0 - 15.0) + 10.0); // quintic: continuous second derivative
-    float a = hash(p + vec2(0.0, 0.0));
-    float b = hash(p + vec2(1.0, 0.0));
-    float c = hash(p + vec2(0.0, 1.0));
-    float d = hash(p + vec2(1.0, 1.0));
-    return a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
+    vec2 f = fract(x);
+    float sx = smoothstep(0.0, 0.12, f.x) * (1.0 - smoothstep(0.58, 1.0, f.x));
+    float sy = smoothstep(0.0, 0.18, f.y) * (1.0 - smoothstep(0.82, 1.0, f.y));
+    return hash(p) * sx * sy;
   }
 
   // Interleaved gradient noise, Jorge Jimenez, SIGGRAPH 2014. Takes pixel coordinates, not uvs, and
@@ -98,16 +102,10 @@ const FRAG = /* glsl */ `
     vec2 q = vec2(dot(vWorld, d), dot(vWorld, vec2(-d.y, d.x))) * uScale;
 
     float t = uTime * ${DRIFT.toFixed(2)};
-    // Two layers at different stretches and speeds. One alone reads as a texture sliding past
-    // rather than as water, so the second is worth its four extra hashes -- but it is the first
-    // thing to go when the machine cannot keep up. The branch is on a uniform, so every fragment
-    // in the draw takes the same side of it and there is no divergence cost.
-    float a = vnoise(q * vec2(${ALONG.toFixed(3)}, ${ACROSS.toFixed(3)}) - vec2(t, 0.0));
-    float h = a;
-    if (uRich > 0.5) {
-      float b = vnoise(q * vec2(0.062, 0.44) - vec2(t * 0.6, 0.0) + 31.4);
-      h = a * 0.62 + b * 0.38;
-    }
+    // A second octave used to add another full noise evaluation to every pixel. Side-by-side
+    // captures showed no legibility gain at play scale, while fill.js priced the sea as most of the
+    // frame, so the single broad field is the intentional full-quality rendering now.
+    float h = streakField(q * vec2(${ALONG.toFixed(3)}, ${ACROSS.toFixed(3)}) - vec2(t, 0.0));
 
     // Only the crests catch light. Thresholding high leaves most of the surface open water and
     // picks out sparse wind-aligned lines, which is what the old quads drew and what keeps the sea
@@ -151,7 +149,6 @@ export function createSea() {
       uWind: { value: new THREE.Vector2(0, -1) },
       uTime: { value: 0 },
       uDetail: { value: 1 },
-      uRich: { value: 1 },
       uPx: { value: 0.2 },
       uScale: { value: 1 },
       uRing: { value: new THREE.Vector2(ARENA_RADIUS - 0.45, 0.45) },
