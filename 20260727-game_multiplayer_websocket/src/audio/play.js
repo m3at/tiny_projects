@@ -4,10 +4,11 @@
 //
 // Two problems worth stating, because both are audible when got wrong:
 //
-//   A broadside is one sound, not sixteen. A ship of the line fires sixteen guns and every hit
-//   raises splinters; one voice per event is mud, and the compressor spends the whole battle
-//   clamped. Each kind gets a minimum spacing, and anything arriving inside it is dropped -- these
-//   are events nobody could pick out individually anyway.
+//   A broadside is not sixteen separate sounds, but it is not one either. The first rule here was a
+//   hard minimum gap per kind with everything inside it discarded, and tools/mix.js showed what
+//   that cost: a quarter of all gunfire and nearly half of all hits thrown away, and thrown away
+//   hardest exactly when the most was happening. A ship of the line and a sloop came out the same.
+//   The rule now is a queue -- see slot() -- which keeps every event and spends level instead.
 //
 //   Nothing exists before a gesture. A suspended context's resume() returns a promise that never
 //   settles until the user has interacted, and its clock does not advance, so anything scheduled
@@ -17,25 +18,29 @@
 import { ARENA_RADIUS } from '../config.js';
 import { createSfx } from './sfx.js';
 
-// Shortest gap between two sounds of a kind, in seconds. Set by ear against a ship of the line,
-// which is the worst case by a wide margin.
-const SPACING = {
-  cannon: 0.05,
-  impact: 0.04,
-  splash: 0.1,
-  break: 0.22,
-  blast: 0.25,
+// Per kind: how far apart to space voices, how much backlog to tolerate before dropping, how hard
+// to duck as the kind piles up, and how long one voice rings for. Set from tools/mix.js against
+// 150 real battles -- these numbers pass 100% of events at a lower peak level than the old rule
+// managed while dropping a quarter of them.
+const VOICE = {
+  cannon: { gap: 0.028, lead: 0.3, duck: 0.5, ring: 0.45 },
+  impact: { gap: 0.022, lead: 0.22, duck: 0.5, ring: 0.22 },
+  splash: { gap: 0.05, lead: 0.15, duck: 0.5, ring: 0.32 },
+  break: { gap: 0.14, lead: 0.3, duck: 0.4, ring: 1.1 },
+  blast: { gap: 0.2, lead: 0.4, duck: 0.3, ring: 2.2 },
 };
 
-// Relative loudness. Measured peaks: a cannon 0.65, a detonation 0.8, twelve cannons together 0.69.
+// Relative loudness before ducking. Measured peaks: a cannon 0.65, a detonation 0.8.
 const LEVEL = {
   cannonBig: 1,
   cannonSmall: 0.75,
-  // A hit landing has to be audible under gunfire, which the first measured pass was not: it sat
-  // nearly 20 dB below a cannon.
-  impact: 0.6,
-  splash: 0.45,
+  // A hit landing has to be audible under gunfire, and twice now it has not been: 20 dB below a
+  // cannon on the first pass, still 13 dB below on the second. Hits are the most common event in
+  // the game and the only one that tells you the shot connected, so they are worth the headroom.
+  impact: 1,
+  splash: 0.55,
   break: 0.6,
+  splinter: 0.8,
   blast: 1.1,
 };
 
@@ -43,35 +48,69 @@ let ctx = null;
 let sfx = null;
 let muted = false;
 let wantAmbience = false;
-const lastAt = {};
+
+// Per kind: the next free moment, how much of it is already sounding, and when that was last
+// measured. Plain objects rather than a Map; there are five keys and this runs every frame.
+const cursor = {};
+const energy = {};
+const seen = {};
+
+// The sea bed is the one long-lived voice, so it is the one that has to be started at the right
+// moment. A suspended context's clock does not advance, so nodes started against it are silent and
+// only earn a console warning; statechange is when it becomes safe.
+function applyAmbience() {
+  if (sfx) sfx.ambience(wantAmbience && ctx.state === 'running');
+}
 
 function build() {
-  const Ctx = globalThis.AudioContext || globalThis.webkitAudioContext;
-  if (!Ctx) return;
-  ctx = new Ctx();
+  ctx = new AudioContext();
+  ctx.addEventListener('statechange', applyAmbience);
   sfx = createSfx(ctx, { volume: muted ? 0 : 0.7 });
-  if (wantAmbience) sfx.ambience(true);
+  applyAmbience();
 }
 
-// Called from the first pointer or key event anywhere in the page. Never awaits resume().
+const UNLOCK = { capture: true };
+
+// Called from pointer and key events until one of them actually carries user activation. Never
+// awaits resume(): that promise does not settle until the browser is ready, and awaiting it means
+// scheduling against a clock that is not moving.
 function unlock() {
+  // Synthetic events -- a dispatchEvent from the dev harness, or element.click() -- do not grant
+  // activation, and building a context that cannot start leaves a suspended one lying around and
+  // logs a warning for every node anything tries to play through it.
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
   if (!ctx) build();
-  if (ctx && ctx.state !== 'running') ctx.resume();
+  if (ctx.state !== 'running') ctx.resume();
+  removeEventListener('pointerdown', unlock, UNLOCK);
+  removeEventListener('keydown', unlock, UNLOCK);
 }
 
-if (typeof addEventListener === 'function') {
-  addEventListener('pointerdown', unlock, { once: true, capture: true });
-  addEventListener('keydown', unlock, { once: true, capture: true });
-}
+addEventListener('pointerdown', unlock, UNLOCK);
+addEventListener('keydown', unlock, UNLOCK);
 
 const live = () => sfx && ctx.state === 'running' && !muted;
 
-function spaced(kind) {
-  const gap = SPACING[kind];
+// Where and how loudly the next voice of a kind should go, or null if it should be dropped.
+//
+// Events of a kind are laid out end to end at least `gap` apart, starting from now. A dozen guns
+// arriving inside one frame become a rolling broadside over a third of a second instead of one
+// flam, which is both what it sounded like and what stops them summing into a clipped lump. Only a
+// backlog longer than `lead` is discarded, and by then the event is late enough to be a lie.
+//
+// `weight` is how much of the kind is already ringing, on a 0..1 scale. Level falls off as the
+// inverse square root of it, so twelve guns are louder than three without being four times louder,
+// and sfx.js uses the same number to make a heavy volley bassier rather than merely bigger.
+function slot(kind) {
+  const v = VOICE[kind];
   const now = ctx.currentTime;
-  if (lastAt[kind] !== undefined && now - lastAt[kind] < gap) return false;
-  lastAt[kind] = now;
-  return true;
+  const at = cursor[kind] > now ? cursor[kind] : now;
+  if (at - now > v.lead) return null;
+  cursor[kind] = at + v.gap;
+
+  const e = (energy[kind] || 0) * Math.exp(-(at - (seen[kind] ?? at)) / v.ring);
+  energy[kind] = e + 1;
+  seen[kind] = at;
+  return { at, gain: 1 / Math.sqrt(1 + v.duck * e), weight: e / (e + 3) };
 }
 
 // Gentle stereo placement from a world x coordinate.
@@ -87,12 +126,14 @@ export const isMuted = () => muted;
 
 export function setAmbience(on) {
   wantAmbience = on;
-  if (sfx) sfx.ambience(on);
+  applyAmbience();
 }
 
-export function ui(kind) {
+// Buttons and refusals. Unqueued: they answer a click, so they are never dense and must never be
+// late. See UI in sfx.js for what each one is.
+export function ui(name) {
   if (!live()) return;
-  sfx.tick({ kind });
+  sfx.ui(name);
 }
 
 // Reads the same effect stream the renderer does, and is called just before main.js drains it.
@@ -100,24 +141,46 @@ export function consume(effects) {
   if (!live()) return;
   for (const e of effects) {
     switch (e.type) {
-      case 'muzzle':
-        if (spaced('cannon')) {
-          sfx.cannon({ size: e.big ? LEVEL.cannonBig : LEVEL.cannonSmall, pan: panOf(e.x) });
-        }
+      case 'muzzle': {
+        const s = slot('cannon');
+        if (!s) break;
+        const base = e.big ? LEVEL.cannonBig : LEVEL.cannonSmall;
+        sfx.cannon({ when: s.at, size: base * s.gain, pan: panOf(e.x), weight: s.weight });
         break;
-      case 'impact':
-        if (spaced('impact')) sfx.impact({ size: LEVEL.impact, pan: panOf(e.x) });
+      }
+      case 'impact': {
+        const s = slot('impact');
+        if (!s) break;
+        sfx.impact({ when: s.at, size: LEVEL.impact * s.gain, pan: panOf(e.x), kind: e.kind });
         break;
-      case 'splash':
-        if (spaced('splash')) sfx.splash({ size: LEVEL.splash, pan: panOf(e.x) });
+      }
+      case 'splash': {
+        const s = slot('splash');
+        if (s) sfx.splash({ when: s.at, size: LEVEL.splash * s.gain, pan: panOf(e.x) });
         break;
-      case 'destroy':
-      case 'sever':
-        if (spaced('break')) sfx.timberBreak({ size: LEVEL.break, pan: panOf(e.x) });
+      }
+      // A mast going over the side is a second and a half of rigging and rope; anything else is a
+      // cell coming apart, which is short. Using the long sound for both made every destroyed
+      // timber sound like a dismasting, and there are twenty of those a battle.
+      case 'destroy': {
+        const mast = e.part === 'mast';
+        const s = slot('break');
+        if (!s) break;
+        const opts = { when: s.at, size: (mast ? LEVEL.break : LEVEL.splinter) * s.gain, pan: panOf(e.x) };
+        if (mast) sfx.timberBreak(opts);
+        else sfx.splinter(opts);
         break;
-      case 'detonate':
-        if (spaced('blast')) sfx.detonation({ size: LEVEL.blast, pan: panOf(e.x) });
+      }
+      case 'sever': {
+        const s = slot('break');
+        if (s) sfx.splinter({ when: s.at, size: LEVEL.splinter * s.gain, pan: panOf(e.x) });
         break;
+      }
+      case 'detonate': {
+        const s = slot('blast');
+        if (s) sfx.detonation({ when: s.at, size: LEVEL.blast * s.gain, pan: panOf(e.x) });
+        break;
+      }
       default:
         break;
     }

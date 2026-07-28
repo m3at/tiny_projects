@@ -28,16 +28,38 @@ const deckGeo = new THREE.BoxGeometry(CELL * 0.96, DECK_HEIGHT, CELL * 0.96);
 const glyphGeo = new THREE.PlaneGeometry(CELL * 0.62, CELL * 0.62).rotateX(-Math.PI / 2);
 const boxGeoCache = new Map();
 const glyphMatCache = new Map();
+const ghostMatCache = new Map();
+const arcGeoCache = new Map();
 
 // Colour comes entirely from instanceColor, so one material serves every part box.
-const partMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 });
+//
+// Lambert, not Standard. Standard is physically based, and against these lights that costs roughly
+// ten times the fragment arithmetic for a specular lobe so broad at roughness 0.7 that it is not
+// visible. Worse, three.js emits RE_IndirectSpecular unconditionally for Standard, so every pixel
+// runs the image-based specular approximation -- including an exp2 -- to compute a slight diffuse
+// darkening, even though there is no environment map for it to reflect.
+//
+// The usual objection is that Lambert shades per vertex and would band these boxes. That has been
+// false since r144: Lambert has been per-fragment for years and the three.js *manual* still says
+// otherwise, while its own API docs say per-fragment. Verified in the vendored r169 source, whose
+// Lambert fragment shader runs RE_Direct_Lambert against the interpolated normal exactly as
+// Standard does. The only thing given up is the specular term.
+const partMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+// The deck plates want exactly the same material as the part boxes -- white, lit, tinted entirely
+// through instanceColor -- so they share one. It used to be built per ship view, which meant two
+// fresh materials every round for a result indistinguishable from this one.
+const deckMaterial = partMaterial;
+
+// Bare timber: masts, flagpoles. One colour, no per-instance variation, so one material for every
+// ship in the game rather than one per view.
+const sparMaterial = new THREE.MeshLambertMaterial({ color: SEA.spar });
 
 // Shared by every arc band on every ship: only the geometry differs.
 const arcMaterial = new THREE.MeshBasicMaterial({
   color: FX.arc,
   transparent: true,
   opacity: 0.3,
-  side: THREE.DoubleSide,
   depthWrite: false,
 });
 
@@ -49,6 +71,45 @@ function boxGeoFor(partId) {
     );
   }
   return boxGeoCache.get(partId);
+}
+
+// One translucent material per part type, cached and never disposed. Building one per hover and
+// disposing the last was measurable: a fresh material has no compiled program attached, so three.js
+// recomputes its cache key and looks it up again, and disposing the old one can delete the program
+// outright -- the ghost is the only non-instanced standard material in the scene, so nothing else
+// keeps it alive. Nine part types is nine materials, which is cheaper than one per mouse move.
+function ghostMatFor(partId) {
+  if (!ghostMatCache.has(partId)) {
+    ghostMatCache.set(
+      partId,
+      new THREE.MeshLambertMaterial({
+        color: PARTS[partId].color,
+        transparent: true,
+        opacity: 0.5,
+      }),
+    );
+  }
+  return ghostMatCache.get(partId);
+}
+
+// Arc bands take one of a handful of shapes -- three centres by a few half-widths by one radius per
+// hull -- so they cache exactly. They were being built and disposed on every pointer move.
+function arcGeoFor(radius, startDeg, half) {
+  const key = `${radius.toFixed(2)}:${startDeg}:${half}`;
+  if (!arcGeoCache.has(key)) {
+    arcGeoCache.set(
+      key,
+      new THREE.RingGeometry(
+        radius,
+        radius + CELL * 0.85,
+        48,
+        1,
+        (startDeg * Math.PI) / 180,
+        (2 * half * Math.PI) / 180,
+      ).rotateX(-Math.PI / 2),
+    );
+  }
+  return arcGeoCache.get(key);
 }
 
 function glyphMatFor(partId) {
@@ -82,7 +143,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
   // ---- deck: one instanced mesh, one instance per hull cell ----
   const deck = new THREE.InstancedMesh(
     deckGeo,
-    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }),
+    deckMaterial,
     capacity,
   );
   deck.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
@@ -221,7 +282,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
   prowShape.lineTo(0, CELL * 1.25);
   const prow = new THREE.Mesh(
     new THREE.ShapeGeometry(prowShape),
-    new THREE.MeshBasicMaterial({ color: colours.hull, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: colours.hull }),
   );
   prow.rotation.x = -Math.PI / 2; // flat, apex toward -z (forward)
   prow.position.set(0, 0.02, (bowZ - 0.5) * CELL);
@@ -229,7 +290,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
 
   const pole = new THREE.Mesh(
     new THREE.CylinderGeometry(0.1, 0.1, 5.5, 6),
-    new THREE.MeshStandardMaterial({ color: SEA.spar }),
+    sparMaterial,
   );
   pole.position.set(0, 2.75, (sternZ + 0.55) * CELL);
   group.add(pole);
@@ -251,13 +312,11 @@ export function createShipView({ design, hullIndex, player, interactive = false 
     deck.instanceColor.needsUpdate = true;
   }
 
+  // One mesh for the life of the view, hidden when there is nothing to preview. Its geometry and
+  // material both come from caches, so a hover is three property writes rather than an allocation,
+  // a shader lookup and two disposals.
   function setGhost(key, partId) {
-    if (ghost) {
-      group.remove(ghost);
-      ghost.geometry.dispose();
-      ghost.material.dispose();
-      ghost = null;
-    }
+    if (ghost) ghost.visible = false;
     if (highlighted && highlighted !== key) {
       const prev = cells.get(highlighted);
       setDeckColour(prev, dead.has(highlighted) ? HOLE : prev.base);
@@ -270,18 +329,15 @@ export function createShipView({ design, hullIndex, player, interactive = false 
     highlighted = key;
     if (!partId || design.parts[key]) return;
 
-    const part = PARTS[partId];
-    ghost = new THREE.Mesh(
-      boxGeoFor(partId),
-      new THREE.MeshStandardMaterial({
-        color: part.color,
-        roughness: 0.7,
-        transparent: true,
-        opacity: 0.5,
-      }),
-    );
-    ghost.position.set(cell.dx * CELL, DECK_TOP + part.height / 2, cell.dz * CELL);
-    group.add(ghost);
+    if (!ghost) {
+      ghost = new THREE.Mesh(boxGeoFor(partId), ghostMatFor(partId));
+      ghost.frustumCulled = false;
+      group.add(ghost);
+    }
+    ghost.geometry = boxGeoFor(partId);
+    ghost.material = ghostMatFor(partId);
+    ghost.position.set(cell.dx * CELL, DECK_TOP + PARTS[partId].height / 2, cell.dz * CELL);
+    ghost.visible = true;
   }
 
   // ---- firing-arc preview ----
@@ -290,11 +346,9 @@ export function createShipView({ design, hullIndex, player, interactive = false 
   const hullRadius = (hull.width / 2 + 0.6) * CELL;
   const arcs = [];
 
+  // Geometries are cached and shared, so they are never disposed here -- only detached.
   function clearArc() {
-    for (const mesh of arcs) {
-      group.remove(mesh);
-      mesh.geometry.dispose();
-    }
+    for (const mesh of arcs) group.remove(mesh);
     arcs.length = 0;
   }
 
@@ -316,17 +370,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
       // RingGeometry theta runs from +x; once laid flat, +x is starboard and +90deg is the bow,
       // which is the mirror of the arc convention (0 = bow, +90 = starboard).
       const startDeg = 90 - centreDeg - half;
-      const mesh = new THREE.Mesh(
-        new THREE.RingGeometry(
-          hullRadius,
-          hullRadius + CELL * 0.85,
-          48,
-          1,
-          (startDeg * Math.PI) / 180,
-          (2 * half * Math.PI) / 180,
-        ).rotateX(-Math.PI / 2),
-        arcMaterial,
-      );
+      const mesh = new THREE.Mesh(arcGeoFor(hullRadius, startDeg, half), arcMaterial);
       mesh.position.set(0, 0.05, cell.dz * CELL);
       arcs.push(mesh);
       group.add(mesh);
@@ -391,20 +435,21 @@ export function createShipView({ design, hullIndex, player, interactive = false 
     animate,
     dispose() {
       clearArc();
-      deck.material.dispose();
       deck.dispose();
       for (const layer of layers.values()) {
         layer.box.dispose();
         layer.glyph.dispose();
       }
+      // The ghost's geometry and material are both shared caches; only the mesh is ours.
       if (ghost) {
-        ghost.material.dispose();
+        group.remove(ghost);
         ghost = null;
       }
-      for (const m of [silhouette, prow, pole, flag]) {
-        m.geometry.dispose();
-        m.material.dispose();
-      }
+      // Geometry is per view and goes; materials are only ours where the colour is the player's.
+      // The flagpole shares sparMaterial with every other ship, so disposing it here would blank
+      // the masts on the opposing ship as well.
+      for (const m of [silhouette, prow, pole, flag]) m.geometry.dispose();
+      for (const m of [silhouette, prow, flag]) m.material.dispose();
     },
   };
 }

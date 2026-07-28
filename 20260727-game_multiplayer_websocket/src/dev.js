@@ -14,6 +14,7 @@
 // plausible ship every round, drawn from the same distribution tools/parts.js samples -- which is
 // much closer to what a real match looks like than a pure gun-deck ship meeting a pure carronade one.
 
+import * as THREE from 'three';
 import { autoBuild, randomProfile, ARCHETYPES } from './autobuild.js';
 import { makeRng, hashSeed } from './sim/rng.js';
 
@@ -101,11 +102,9 @@ function screenAt(dx, dz) {
   const { sceneCtl } = globalThis.__game;
   const canvas = sceneCtl.renderer.domElement;
   const camera = sceneCtl.camera;
-  // Vector3 is not a module global here; borrow the class off an existing vector.
-  const V = camera.position.constructor;
   // Build-phase ships sit at the origin unrotated, so cell offsets are world offsets.
   const CELL_SIZE = 2.4;
-  const p = new V(dx * CELL_SIZE, 0.5, dz * CELL_SIZE).project(camera);
+  const p = new THREE.Vector3(dx * CELL_SIZE, 0.5, dz * CELL_SIZE).project(camera);
   const rect = canvas.getBoundingClientRect();
   return {
     x: rect.left + ((p.x + 1) / 2) * rect.width,

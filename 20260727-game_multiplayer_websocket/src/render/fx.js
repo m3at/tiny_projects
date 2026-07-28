@@ -38,12 +38,31 @@ function makeInstanced(geometry, material, count) {
   return mesh;
 }
 
+// Marking an attribute dirty re-uploads the whole array, and these arrays are sized for the worst
+// case: 400 shot, 220 puffs, 60 rings. A battle typically has a handful of each, so the default
+// behaviour was sending about 50KB a frame to describe a dozen live particles, and sending it even
+// when there were none at all. An update range bounds the upload to what was written; no live
+// instances means no upload.
+function upload(mesh, live) {
+  // count is already 0, so nothing is drawn from the buffer and nothing needs to reach the GPU.
+  if (live === 0) return;
+  mesh.instanceMatrix.clearUpdateRanges();
+  mesh.instanceMatrix.addUpdateRange(0, live * 16);
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.instanceColor.clearUpdateRanges();
+  mesh.instanceColor.addUpdateRange(0, live * 3);
+  mesh.instanceColor.needsUpdate = true;
+}
+
 export function createFx(scene) {
   const shots = makeInstanced(
     new THREE.SphereGeometry(0.42, 8, 6),
-    new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.5 }),
+    // Lambert like the ship parts. A ball in flight is a few pixels across; the specular
+    // highlight that metalness bought was never resolvable.
+    new THREE.MeshLambertMaterial(),
     MAX_SHOT,
   );
+  shots.name = 'shots';
   scene.add(shots);
 
   const puffs = makeInstanced(
@@ -56,6 +75,7 @@ export function createFx(scene) {
     }),
     MAX_PUFF,
   );
+  puffs.name = 'puffs';
   scene.add(puffs);
 
   const rings = makeInstanced(
@@ -64,10 +84,12 @@ export function createFx(scene) {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
+      // Flat and face-up after the rotateX below, so the camera never sees the back. FrontSide
+      // (the default) lets back-face culling drop half the triangles.
     }),
     MAX_RING,
   );
+  rings.name = 'rings';
   scene.add(rings);
 
   // Index into these arrays is the instance index, so they are kept compact.
@@ -219,8 +241,7 @@ export function createFx(scene) {
       n++;
     }
     shots.count = n;
-    shots.instanceMatrix.needsUpdate = true;
-    shots.instanceColor.needsUpdate = true;
+    upload(shots, n);
 
     // ---- puffs: advance, swap-remove the dead, then write the survivors ----
     for (let i = livePuffs.length - 1; i >= 0; i--) {
@@ -242,8 +263,7 @@ export function createFx(scene) {
       writeColour(puffs.instanceColor.array, i, p.color, p.opacity * (1 - k) * (1 - k));
     }
     puffs.count = livePuffs.length;
-    puffs.instanceMatrix.needsUpdate = true;
-    puffs.instanceColor.needsUpdate = true;
+    upload(puffs, livePuffs.length);
 
     // ---- rings ----
     for (let i = liveRings.length - 1; i >= 0; i--) {
@@ -261,8 +281,7 @@ export function createFx(scene) {
       writeColour(rings.instanceColor.array, i, r.color, r.opacity * (1 - k));
     }
     rings.count = liveRings.length;
-    rings.instanceMatrix.needsUpdate = true;
-    rings.instanceColor.needsUpdate = true;
+    upload(rings, liveRings.length);
   }
 
   return {

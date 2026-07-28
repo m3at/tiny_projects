@@ -26,6 +26,11 @@ node tools/ablate.js        disables one mechanic at a time, reports what actual
 node tools/events.js        confirms detonations / severings / dismastings fire
 node tools/bench.js         simulation throughput; every other tool is built out of this number
 node tools/audio.js         renders every sound offline: clipping, DC offset, onset clicks
+node tools/mix.js           what the mixer hears across real battles: drops, bursts, peak level
+node tools/frames.js        frame times as a distribution, per phase; stutter lives in the tail
+node tools/profile.js       browser CPU profile of the real page, software rasterising excluded
+node tools/fill.js          what each layer of the scene costs to draw, and how it scales
+node tools/playtest.js      plays a whole match through the real interface and complains
 node tools/golden.js        fingerprint 900 battles; diff it across a refactor
 node tools/shot.js out.png "800 ;; ovBtn() ;; 400" "?dev=brawler,crusher&round=5"
 ```
@@ -41,6 +46,16 @@ Which tool answers which question:
 - "Does this mechanic matter at all?" -> `ablate.js`. Deletes it and counts winner flips.
 - "Is any part a no-brainer or a trap?" -> `parts.js`.
 - "Is any matchup hopeless?" -> `balance.js`, and read the worst cell, not the average.
+- "Why does it hitch?" -> `frames.js` first, for which phase and how bad the tail is, then
+  `profile.js` to name the function. Read the js line, not the wall line: headless wall times swing
+  by 2x between identical runs, and the JavaScript numbers do not.
+- "Can you actually hear the battle?" -> `mix.js`. Sounds offered against sounds played.
+- "What is expensive to draw?" -> `fill.js`. Prices one layer at a time by hiding it. Its noise
+  floor is a few ms at 1080p, so trust the big numbers and treat anything near zero -- or negative,
+  which happens -- as unmeasured rather than free.
+- "Did I break the game?" -> `playtest.js`. Every other tool drives the simulation; this one drives
+  the interface, so it is the only thing that would notice if locking in stopped working. It also
+  fails the run on any console output, which is how the suspended-context audio bug surfaced.
 
 ## Measure, do not guess
 
@@ -111,9 +126,11 @@ src/theme.js       every colour. Keep PLAYER[] in step with --p1/--p2 in styles.
 src/match.js       scores, purses, hull progression, intel. Pure: no DOM, no three.js
 src/autobuild.js   greedy ship builder: bot opponent and the dev Fill button
 src/dev.js         URL-driven dev harness, inert without ?dev
-src/perf.js        rolling frame stats, always on
+src/perf.js        frame stats, always on: an EMA for scale, percentiles for the tail
 src/main.js        presentation and flow: phases, input, render loop
 src/render/        three.js scene, ship meshes, particles, glyph textures
+  sea.js           the sea, the wind and the arena ring, as one full-screen triangle
+  quality.js       the adaptive resolution control loop, kept apart from the scene
 src/audio/sfx.js   every sound, synthesised. Takes a context, so it renders offline for testing
 src/audio/play.js  when to make a noise: voice spacing, stereo placement, mute, the gesture unlock
 src/ui/            build-phase panel, HUD chrome
@@ -129,6 +146,7 @@ src/sim/           the deterministic battle core, one file per question
   battle.js        the clock over all of it, and how a round ends
 
 tools/             headless harnesses and the CDP driver
+  cdp.js           one DevTools client for every tool that drives the real browser
   harness.js       playBattle (outcomes) and measureBattle (what it looked like)
   bot.js           the stand-in player: the ammunition decision, and its reaction interval
   variant.js       run the sim with src/ patched in a temp dir, for ablate.js and tune.js
@@ -204,10 +222,37 @@ Rules worth not relearning:
 - A suspended context's `resume()` returns a promise that never settles until the user has
   interacted, and its clock does not advance. Never await it, and emit nothing unless
   `ctx.state === 'running'`, or everything scheduled meanwhile fires at once when it finally starts.
-- Sixteen guns is not sixteen sounds. `play.js` gives each kind a minimum spacing and drops the rest.
+- Sixteen guns is not sixteen sounds, but it is not one either. The first rule was a hard minimum
+  gap per kind with everything inside it discarded, and `tools/mix.js` showed the bill: 25% of
+  gunfire and 47% of hits thrown away, worst exactly when the most was happening, so a ship of the
+  line sounded like a sloop. `play.js` now queues instead — events of a kind are laid end to end at
+  a fixed cadence, and only a backlog past `lead` is dropped. Everything is heard, and the *peak
+  level falls*, because level rather than events is what gets spent.
+- Spend level, not events. Each kind carries a decaying count of how much of it is already ringing,
+  and new voices scale by 1/sqrt(1 + duck * that). Twelve guns are louder than three without being
+  four times louder. Peak level over 150 battles: 11.2 under the old rule at 75% heard, 8.9 now at
+  100%.
+- Loudness alone does not make a volley sound bigger. `sfx.cannon` takes the same density number as
+  `weight` and ducks the crack hard, the body barely, and runs the tail longer and darker — mass
+  gunfire is bassier than one gun. Without it every busy moment came out identical.
+- Grape and round shot must sound different on arrival. Which one is loaded is the only decision a
+  player makes during a battle, so grape is a patter of small bright strikes and round shot is a
+  modal thud on one of three timbers. One recipe with pitch jitter reads as one sound stuttering,
+  and hits are the most frequent event in the game at 7.7 a second.
+- Hits have been too quiet twice: 20 dB below a cannon on the first pass, 13 dB on the second. They
+  are the only confirmation that a shot connected. They sit about 8 dB down now.
+- Interface sounds are layered recipes, not one tock with the pitch moved. The shape is borrowed
+  from cuelume (github.com/Danilaa1/cuelume); the frequencies are not, because theirs are glassy and
+  this game wants wood. Only buttons that commit make a sound — a tick on every card and every cell
+  is a clock, which is what the first pass sounded like.
+- The echo on `confirm` is explicit taps, the layers rendered again quieter and duller, not a
+  feedback delay. Oscillators stop themselves; a `DelayNode` does not, so a feedback loop needs
+  cleanup timers and lingers in the graph between presses.
 - Beware what you measure: the first version of the onset check flagged the detonation, because high
   frequencies have large sample-to-sample deltas by nature. Measuring the step *out of silence* is
   the thing that distinguishes a click from a bright sound.
+- `tools/audio.js` renders offline and will happily measure a stale module. It disables the HTTP
+  cache over CDP now; before that a "why is my new sound missing" session started here.
 
 ## Rendering notes
 
@@ -223,12 +268,188 @@ only) and opacity rides in `instanceColor`, since fading additively is the same 
 Anything called per frame must be dirty-tracked. `hud.js` guards every DOM write; `scene.js`
 only resizes the canvas and rebuilds the projection when something changed.
 
+Never read layout from the frame path, and never from a pointer handler. This was the largest
+render finding by a distance, and it does not look like a rendering problem at all:
+
+- `scene.js frame()` called `resize()` every frame, which read `canvas.clientWidth`. That getter
+  cannot answer without flushing style and layout for the whole page, so the cost of a frame
+  depended on whether the HUD had just written to the DOM. It was the top JavaScript entry in both
+  phases. A `ResizeObserver` reports the same numbers off layout the browser has already done, and
+  only when they change.
+- `ui/build.js pick()` called `getBoundingClientRect()` on every `pointermove`, forcing a reflow of
+  the build panel at mouse-report rate. The canvas is fixed to the viewport, so the rectangle is
+  cached and re-read on resize and scroll.
+- Measured on `tools/frames.js`, JavaScript per frame: build p50 1.1ms to 0.5ms and p99 7.3ms to
+  1.2ms, with frames costing over twice the median falling from 6.5% to 1.7%; battle p50 1.0ms to
+  0.4ms. Wall-clock times headless swing 2x run to run and are not worth quoting.
+
+The sea was 60% of everything drawn, and it was drawing a constant:
+
+- It was a 1400-unit plane with a `MeshStandardMaterial`, so a full-screen physically based shader
+  ran on every pixel of every frame. But the plane faces straight up and the camera is orthographic,
+  so the normal and the view direction are both constant over the whole plane -- every pixel
+  computed the same colour. Nine samples across the frame all read `172d3a`. Deleting it took
+  1920x1080 from 58.4ms a frame to 19.8ms with the open water byte-identical in a screenshot diff.
+- That is why nothing in `render/sea.js` is lit. Under this camera every view-dependent term --
+  fresnel, specular, environment reflection -- is a constant, so the only kind of shading that
+  survives is banding a scalar field, which is view independent.
+- It all comes back the moment the camera becomes perspective.
+- `tools/fill.js` also reports the floor: with every mesh hidden a frame costs 0.7ms, so the clear
+  and the swap are free and anything left to win is in the scene.
+
+`render/sea.js` then replaced both the flat colour and the 420 wind-streak quads with one
+full-screen triangle. The quads were the largest layer left -- 46% of a 720p frame -- and they were
+decoration; worse, they were alpha-blended and overlapping, which on a tile-based mobile GPU
+switches off the hidden-surface removal the architecture is built around. Notes on it:
+
+- The vertex shader has no matrix. An orthographic projection has no perspective divide, so screen
+  to the y=0 plane is a scale and an offset; checked against a real unproject-and-raycast at 1e-13
+  world units. The z term carries the 60-degree foreshortening.
+- Wind falls out for free by squashing isotropic noise about 7:1 along the wind axis. The thing 420
+  quads existed to convey is two noise lookups and a rotation.
+- Threshold high. The first pass banded the whole range and the sea fought the ships for attention;
+  only the crests catch light now. Legibility is the constraint on a game board, not prettiness.
+- No `sin()` in the hash. `sin` is not bit-specified in GLSL ES, so the popular
+  `fract(sin(dot(...)))` hash gives different water on different GPUs, and its argument overflows
+  mediump. Value noise after iq (MIT) instead.
+- Time is wrapped on the CPU and the uniform is `highp`. A plain seconds-since-load clock in
+  mediump loses a frame of resolution by about 32 seconds and the water starts to judder.
+- Aliasing is handled without `fwidth`: under this camera world-units-per-pixel is the same
+  everywhere on screen, so it is one uniform computed when the zoom changes.
+- Dither is two summed IGN taps for a triangular distribution, applied after the colour space
+  conversion. One tap of uniform noise does not remove banding, and dithering before the conversion
+  gets quantised away.
+
+Unsettled, and it needs a real phone: the software rasteriser prices this shader *above* the quads
+it replaced, because it penalises per-pixel arithmetic heavily and cannot show the blending penalty
+that makes the quads bad on a tiler. The reasoning says the shader wins on real hardware; the
+measurement here says it loses. That is why the second noise layer is the first thing the adaptive
+controller drops -- decoration degrades before sharpness does.
+
+Adaptive resolution is what actually promises 60fps, because frame cost is very nearly linear in
+pixel count and no amount of tidying changes that. `scene.js` counts late frames over one-second
+windows and steps the rendering scale down as soon as a quarter of them missed.
+
+Stepping back *up* is the hard half, and hysteresis alone does not do it. With a fixed four-window
+delay the controller pumped between 0.5 and 0.6 for as long as it was watched: a machine that lands
+between two steps is comfortable at the lower one precisely *because* it is lower, so "comfortable
+for a while" is not evidence that the higher step would hold. What works is making a failed
+promotion expensive -- every step up that gets undone soon after doubles the number of good windows
+the next one needs. Headless now descends 1 to 0.5 in eight seconds, probes upward exactly once,
+and holds for as long as you care to watch. Anything with a real GPU should never leave 1.
+
+Watch for this shape anywhere a controller reacts to its own effect. Also worth knowing: a window
+needs a minimum number of frames to count, or returning from a backgrounded tab hands it a single
+enormous frame, reads 100% late, and drops the resolution for no reason.
+
+Material choice is the second lever, and the folklore about it is wrong:
+
+- Everything solid is `MeshLambertMaterial`, not `MeshStandardMaterial`. Standard is physically
+  based and costs roughly ten times the fragment arithmetic per light for a specular lobe that, at
+  roughness 0.7 with no environment map, is invisible. It is worse than it looks: three.js emits
+  `RE_IndirectSpecular` unconditionally for Standard, so every pixel runs the image-based specular
+  approximation -- including an `exp2` -- purely to compute a slight diffuse darkening.
+- The objection is that Lambert shades per vertex and would band the boxes. That has been false
+  since r144. Lambert is per-fragment, and the three.js *manual* still says otherwise while its own
+  API docs say per-fragment; the vendored r169 source settles it. Only the specular term is lost.
+- Measured, ships alone at 1280x720: 4.08ms with Standard, 2.888ms with Lambert, 29% off that
+  layer. Visually free -- swapping the materials on one frozen frame moved 0.3% of pixels and not
+  one of them by more than 9 of 255.
+- Keep `antialias: true`. Trading MSAA for resolution is backwards on a tile-based mobile GPU,
+  where MSAA samples never leave tile memory: 4x MSAA measures about +23% on a Pixel 6, while 2x
+  supersampling through the pixel ratio is +300% for comparable edges. Quality gives through the
+  resolution scale, never through this.
+- Do *not* set `alpha: false`, which looks like a saving and is not. MDN's WebGL best practices has
+  a section headed "Avoid alpha:false, which can be expensive": an RGB back buffer often has to be
+  emulated over an RGBA surface. `stencil: false` is a genuine saving and is set.
+- Do not reach for `BatchedMesh`. It is for many distinct geometries sharing a material; these are
+  one geometry repeated, which is `InstancedMesh`'s case. It also hard-requires `WEBGL_multi_draw`.
+- The canvas has `webglcontextlost` / `webglcontextrestored` handlers. Mobile loses the context
+  routinely, and without them the canvas stays black for the rest of the session.
+
+Two smaller ones from the same pass:
+
+- The ghost preview built a `MeshStandardMaterial` per hover and disposed the last. It is the only
+  non-instanced standard material in the scene, so nothing else kept its compiled program alive.
+  One cached material per part type, and one mesh whose geometry and material are swapped. Arc
+  preview rings were likewise rebuilt per hover and are now cached by shape.
+- Marking an instance attribute dirty re-uploads the *whole* array, and `fx.js` sizes its arrays for
+  400 shot and 220 puffs. A typical battle has a handful, so it was sending about 50KB a frame to
+  describe a dozen particles, and sending it when there were none. `addUpdateRange` bounds the
+  upload to what was written, and an empty layer uploads nothing.
+- Anything flat that ends up facing the camera after its `rotateX(-Math.PI / 2)` -- the impact
+  rings, the arc bands, the prow -- is `FrontSide`, so back-face culling drops half its triangles.
+  The stern flag is the one real `DoubleSide`: it turns with the ship.
+- The arena boundary is drawn by the sea shader, not by a mesh. It was a 128-segment ring with a
+  transparent material -- a blended draw call for a circle that is one `length()` from the origin
+  once the shader already has world coordinates. It also antialiases properly now, where the
+  tessellated version had visible facets. Battle draw calls 40 to 37, triangles 1467 to 965.
+
+A measurement caution learned the hard way here: headless Chrome died partway through a run of
+`tools/fill.js` and the next `tools/frames.js` reported a 2.6 second frame and 5fps. It looked
+exactly like a catastrophic regression and was a dead browser. Restart `./tools/dev.sh` and
+reproduce before believing a sudden cliff.
+
+## Browser baseline
+
+Current browsers only: last couple of years of Chrome, Safari, Firefox, and phones of the same
+vintage. That is a deliberate decision and it is what licenses the following, so a compatibility
+shim added back in without a reason is a regression:
+
+- `new AudioContext()` directly. `webkitAudioContext` was for Safari before 14.1.
+- `ResizeObserver` and `AbortController` unguarded. Both are years past universal.
+- `ResizeObserver` observing `device-pixel-content-box`, which is the newest thing relied on here
+  (Safari 16.4). It gives the exact integer backing-store size, so the true device ratio is
+  `deviceBox / cssBox` rather than `devicePixelRatio` -- the two disagree under browser zoom and on
+  a 125%-scaled display, and the disagreement is a faint moire over the whole picture.
+- One `AbortController` per build phase owns every listener it registers, so teardown is a single
+  `abort()` instead of a removal list that has to be kept in step with the registration list.
+- `pointermove` is registered `passive: true`. `contextmenu` cannot be: it calls `preventDefault`.
+
+Weighed and rejected, with the reason, so they are not relitigated for free:
+
+- **WebGPU.** three.js has a WebGPU renderer, but it is a different vendored build and a different
+  material pipeline, and there is nothing to win: 37 draw calls and 965 triangles are not a
+  dispatch-overhead problem.
+- **OffscreenCanvas in a worker.** Moves rendering off the main thread. The main thread spends
+  0.3ms a frame; there is nothing to move.
+- **BatchedMesh.** Wrong tool -- see the rendering notes.
+- **A glyph atlas to halve the ship draw calls.** Real, and worth maybe 15 calls. Draw calls are
+  not the bottleneck at this scale; fill is.
+- **`mediump` in the sea shader.** The obvious mobile win, and it does not apply: the value-noise
+  hash reaches intermediate values around 250,000, and the dither needs `gl_FragCoord` where a
+  mediump ULP at 1080p is 1.0. The two expensive parts are exactly the parts that need `highp`.
+- **`renderer.compileAsync()`.** Nine programs, all built during the first frames. Nothing compiles
+  at a round boundary.
+- **Reusing ship views between rounds instead of rebuilding them.** Measured: 0.2ms to create and
+  0.1ms to dispose, so 0.6ms per round for both ships. Not worth the lifecycle complexity.
+
+## Code shape
+
+Two consolidations worth not undoing:
+
+- **`tools/cdp.js` is the only DevTools client.** Five tools drive the real browser and each had
+  grown its own copy of the same forty lines, plus three separate copies of "click through the
+  overlays until the game reaches a phase". Anything new that talks to Chrome imports this. It is
+  not fewer lines overall -- the module is about as long as what it removed -- but the gotchas are
+  written down once instead of being rediscovered per tool, and two of the five had already
+  forgotten to disable the cache.
+- **`render/quality.js` holds the adaptive-resolution policy**, and `scene.js` only applies it.
+  A control loop that reacts to its own effect is where the bugs live, and it was crowding out the
+  file that is supposed to be about the scene.
+
 ## Gotchas already paid for
 
 - A `<canvas>` is a replaced element: `position: fixed; inset: 0` leaves it at its intrinsic
   300x150. State `width`/`height` explicitly.
 - `THREE.Fog` plus an orthographic camera 300 units back flattens the scene to one colour.
-- Chrome caches aggressively between tool runs. `tools/shot.js` disables it via CDP.
+- Chrome caches aggressively between tool runs. `tools/shot.js`, `tools/audio.js`,
+  `tools/frames.js` and `tools/profile.js` all disable it via CDP; anything new that imports from
+  the page must do the same or it will measure the previous edit.
+- Headless is software-rasterised, so a CPU profile of the page is 98% `(program)` with no stack.
+  `tools/profile.js` excludes it and renormalises, which is the only way the JavaScript is legible.
+- `perf.sample` used to be handed the *clamped* step, so on any machine slower than 20fps every
+  frame recorded as exactly 50ms and the tail was invisible. It takes real elapsed time now.
 - `tools/shot.js` steps: a bare number waits ms, `@file.js` evaluates a file in the page
   (avoids fighting shell escaping). It navigates to about:blank when done, because a live
   WebGL page keeps a core busy.
@@ -243,6 +464,14 @@ only resizes the canvas and rebuilds the projection when something changed.
   hides exactly the output you wanted; grep for `step` instead.
 - In `ui/build.js`, `renderAll()` deliberately does not touch the hint text; callers own it.
   It used to, which silently ate every feedback message.
+- Device metrics have to be set *after* the page loads. `Emulation.setDeviceMetricsOverride`
+  applied before navigation leaves the WebGL surface out of captured frames entirely: the game
+  runs, the draw calls happen, and the screenshot comes back as a correct HUD over empty water,
+  which reads exactly like a rendering regression. `cdp.js` documents it and `shot.js` still got it
+  wrong once after the comment was written.
+- Backticks inside the shader source end the template literal. A comment mentioning a ratio in
+  backticks turned into `SyntaxError: Unexpected identifier`. `cp file /tmp/x.mjs && node --check`
+  finds these in a second; the browser only says the module failed to parse.
 - `tools/shot.js` takes the dev query as its *third* argument. It used to only read a `URL`
   environment variable, so a query passed as an argument was silently ignored and every "why is
   autoplay not running" session started there.

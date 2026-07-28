@@ -8,18 +8,55 @@
 //     from the target), so it is computed once and only the position moves after that.
 
 import * as THREE from 'three';
-import { ARENA_RADIUS } from '../config.js';
 import { SEA, LIGHT } from '../theme.js';
+import { createSea } from './sea.js';
+import { createQuality } from './quality.js';
 
 const TILT = (60 * Math.PI) / 180; // from horizontal
 const CAMERA_DISTANCE = 300; // irrelevant to scale under orthographic; just clears the scene
-const STREAK_COUNT = 420;
-const STREAK_SPREAD = 1.9; // how far past the viewport edge streaks are scattered
+
+// Rendering scale steps for the adaptive resolution controller. Below about half the frame is
+// visibly soft, so that is the floor: past it, a device simply gets fewer than 60 frames.
+const SCALES = [1, 0.85, 0.72, 0.6, 0.5];
+const MAX_RATIO = 2; // past this the extra pixels buy nothing you can see on any current display
 
 export function createScene(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setClearColor(SEA.background);
+  // Nothing draws to the stencil buffer, so the context does not have to allocate one. On a
+  // tile-based mobile GPU that is tile memory saved on every frame, for free. Depth stays: the
+  // scene is tilted boxes and needs it.
+  //
+  // `alpha: false` is deliberately NOT set, though it looks like the same kind of saving. It is
+  // not: MDN's WebGL best practices has a section headed "Avoid alpha:false, which can be
+  // expensive", because an RGB back buffer often has to be emulated on top of an RGBA surface. The
+  // opaque pass already writes 1.0 to alpha, which is what that page recommends doing instead.
+  //
+  // `antialias: true` stays, and the instinct to trade it for resolution is backwards on a tiler:
+  // MSAA samples never leave tile memory, so 4x MSAA measures about +23% on a Pixel 6 while 2x
+  // supersampling through the pixel ratio is +300% for comparable edges. If quality has to give,
+  // it gives through the resolution scale below, never through this.
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    stencil: false,
+    powerPreference: 'high-performance',
+  });
+
+  // Mobile loses the GL context routinely -- backgrounding, memory pressure, a driver reset -- and
+  // without these the canvas simply stays black for the rest of the session. Preventing the default
+  // on loss is what allows a restore to be delivered at all. three.js rebuilds its own resources on
+  // restore, so there is nothing else to do here.
+  canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
+  canvas.addEventListener('webglcontextrestored', () => {
+    renderer.setClearColor(SEA.water);
+    lastWidth = 0; // forget the cached size so resize() actually reapplies it
+    resize();
+  });
+  // Corrected to the compositor's real ratio by the ResizeObserver below; this is only the value
+  // used for the very first frame, before layout has been observed once.
+  let deviceRatio = Math.min(devicePixelRatio, MAX_RATIO);
+  // The sea triangle covers every pixel, so this is only what shows for the frame or two before it
+  // first draws, and after a context restore.
+  renderer.setClearColor(SEA.water);
 
   // No fog: the orthographic camera sits far back for the tilt, so distance-based fog would
   // flatten the whole scene to one colour.
@@ -33,96 +70,14 @@ export function createScene(canvas) {
   sun.position.set(-45, 90, 38);
   scene.add(sun);
 
-  const sea = new THREE.Mesh(
-    new THREE.PlaneGeometry(1400, 1400).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: SEA.water, roughness: 0.55, metalness: 0.1 }),
-  );
-  sea.position.y = -0.4;
+  // ---- sea, wind and the arena boundary ----
+  // One unlit full-screen triangle. render/sea.js explains why it is a shader rather than a lit
+  // plane, 420 drifting quads and a ring mesh -- all three of which it replaced.
+  const sea = createSea();
+  const seaU = sea.material.uniforms;
   scene.add(sea);
 
-  // Marks the edge of the engagement area, so the containment nudge does not look like the
-  // ships randomly changing their minds.
-  const arena = new THREE.Mesh(
-    new THREE.RingGeometry(ARENA_RADIUS - 0.9, ARENA_RADIUS, 128).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({
-      color: SEA.arenaRing,
-      transparent: true,
-      // Faint: the fight settles near the middle now, so the ring is a hint about where the
-      // stage ends rather than a boundary anyone touches.
-      opacity: 0.22,
-      side: THREE.DoubleSide,
-    }),
-  );
-  arena.position.y = -0.3;
-  scene.add(arena);
-
-  // ---- wind streaks ----
-  // They drift downwind, which is what makes the wind direction legible without reading a
-  // dial. Positions are normalised around the camera target so they always fill the frame
-  // however far the zoom has travelled; keeping world positions would strand them all in one
-  // corner after a zoom-out.
-  const streaks = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(1, 0.22).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: SEA.windStreak, transparent: true, opacity: 0.14 }),
-    STREAK_COUNT,
-  );
-  streaks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  streaks.frustumCulled = false;
-  scene.add(streaks);
-
-  const streakData = [];
-  for (let i = 0; i < STREAK_COUNT; i++) {
-    streakData.push({
-      ux: Math.random() * 2 - 1,
-      uz: Math.random() * 2 - 1,
-      len: 2.5 + Math.random() * 7,
-      speed: 0.55 + Math.random() * 0.75,
-    });
-  }
-
-  let windTo = 0;
-  const streakRotation = new THREE.Matrix4();
-  let streakRotationStale = true;
-
-  const wrapUnit = (v) => ((((v + 1) % 2) + 2) % 2) - 1;
-
-  // Each streak is a flat quad long in +x; rotating about y by (90deg - windTo) points it
-  // downwind. The rotation is shared, so only the x column carries the per-streak length and
-  // the matrices can be written straight into the buffer.
-  function updateStreaks(dt) {
-    if (streakRotationStale) {
-      streakRotation.makeRotationY(Math.PI / 2 - windTo);
-      streakRotationStale = false;
-    }
-    const e = streakRotation.elements;
-    const arr = streaks.instanceMatrix.array;
-    const radius = viewSize * STREAK_SPREAD;
-    const vx = Math.sin(windTo);
-    const vz = -Math.cos(windTo);
-    const lengthScale = viewSize / 24;
-
-    for (let i = 0; i < STREAK_COUNT; i++) {
-      const s = streakData[i];
-      s.ux = wrapUnit(s.ux + vx * s.speed * dt * 0.42);
-      s.uz = wrapUnit(s.uz + vz * s.speed * dt * 0.42);
-      const len = s.len * lengthScale;
-      const o = i * 16;
-      arr[o] = e[0] * len;
-      arr[o + 1] = e[1] * len;
-      arr[o + 2] = e[2] * len;
-      arr[o + 4] = e[4];
-      arr[o + 5] = e[5];
-      arr[o + 6] = e[6];
-      arr[o + 8] = e[8];
-      arr[o + 9] = e[9];
-      arr[o + 10] = e[10];
-      arr[o + 12] = target.x + s.ux * radius;
-      arr[o + 13] = -0.28;
-      arr[o + 14] = target.z + s.uz * radius;
-      arr[o + 15] = 1;
-    }
-    streaks.instanceMatrix.needsUpdate = true;
-  }
+  let seaTime = 0;
 
   // ---- camera ----
 
@@ -140,15 +95,60 @@ export function createScene(canvas) {
     lastViewSize = viewSize;
   }
 
-  function resize() {
-    const w = canvas.clientWidth || innerWidth;
-    const h = canvas.clientHeight || innerHeight;
-    if (w === lastWidth && h === lastHeight) return;
+  let appliedRatio = -1;
+
+  function applySize(w, h) {
+    if (!w || !h) return;
+    const ratio = deviceRatio * quality.scale;
+    if (w === lastWidth && h === lastHeight && ratio === appliedRatio) return;
     lastWidth = w;
     lastHeight = h;
+    appliedRatio = ratio;
+    renderer.setPixelRatio(ratio);
     renderer.setSize(w, h, false);
     updateProjection();
   }
+
+  // Reading clientWidth forces the browser to flush style and layout before it can answer. frame()
+  // used to call this every frame, which made the cost of a frame depend on whether the HUD had
+  // just written to the DOM -- the profiler put it at the top of the JavaScript in both phases, and
+  // it is the kind of stutter you will never find by looking at the renderer. A ResizeObserver
+  // reports the same numbers off the layout the browser has already done, and only when they
+  // change, so the frame path reads nothing.
+  function resize() {
+    const box = canvas.getBoundingClientRect();
+    applySize(Math.round(box.width), Math.round(box.height));
+  }
+
+  // Observed in *device* pixels, not CSS pixels. devicePixelContentBoxSize is the exact integer
+  // backing-store size the compositor wants, and dividing it by the CSS size gives the true ratio,
+  // which is not always devicePixelRatio: at browser zoom or on a 125%-scaled display the two
+  // disagree, the drawing buffer ends up a non-integer multiple of the displayed size, and the
+  // result is a faint moire over the whole picture. Asking for the device box removes the guesswork.
+  new ResizeObserver((entries) => {
+    const e = entries[entries.length - 1];
+    const css = e.contentBoxSize[0];
+    const dev = e.devicePixelContentBoxSize[0];
+    const w = Math.round(css.inlineSize);
+    const h = Math.round(css.blockSize);
+    if (w > 0) deviceRatio = Math.min(dev.inlineSize / w, MAX_RATIO);
+    applySize(w, h);
+  }).observe(canvas, { box: 'device-pixel-content-box' });
+
+  // ---- adaptive resolution ----
+  // The policy lives in quality.js; this is only how it is applied.
+  const quality = createQuality({
+    steps: SCALES,
+    onChange: (scale) => {
+      renderer.setPixelRatio(deviceRatio * scale);
+      renderer.setSize(lastWidth, lastHeight, false);
+      appliedRatio = deviceRatio * scale;
+      // Decoration goes before sharpness does. The sea's second noise layer is the most expensive
+      // optional thing in the scene and the least load-bearing, so it is dropped at the first sign
+      // of trouble, one step before the whole image starts getting soft.
+      seaU.uRich.value = scale === SCALES[0] ? 1 : 0;
+    },
+  });
 
   // The offset from target to camera never changes, so neither does the orientation.
   const offset = new THREE.Vector3(0, Math.sin(TILT), Math.cos(TILT)).multiplyScalar(
@@ -171,8 +171,8 @@ export function createScene(canvas) {
     raycaster: new THREE.Raycaster(),
 
     setWind(w) {
-      windTo = w;
-      streakRotationStale = true;
+      // The wind blows towards this bearing; 0 is -z, and x is starboard of it.
+      seaU.uWind.value.set(Math.sin(w), -Math.cos(w));
     },
 
     // Ease toward a framing rather than snapping, so the battle camera glides.
@@ -185,17 +185,41 @@ export function createScene(canvas) {
         target.z += (cz - target.z) * 0.08;
         viewSize += (size - viewSize) * 0.05;
       }
-      resize();
       if (Math.abs(viewSize - lastViewSize) > 1e-4) updateProjection();
       placeCamera();
+
+      // Screen to water, as a scale and an offset. Exact under an orthographic camera, which has
+      // no perspective divide; the z term carries the 60-degree foreshortening.
+      const aspect = lastWidth / Math.max(1, lastHeight);
+      seaU.uMap.value.set(target.x, target.z, viewSize * aspect, -viewSize / Math.sin(TILT));
+
+      // Fade the pattern out rather than letting it alias when a streak stops covering pixels.
+      // Under this camera the world-units-per-pixel is the same everywhere on screen, so it is one
+      // number computed here instead of fwidth() in the shader.
+      const worldPerPixel =
+        (2 * viewSize * aspect) / Math.max(1, lastWidth * renderer.getPixelRatio());
+      seaU.uPx.value = worldPerPixel;
+      // 70 is the battle framing the sea was tuned against; everything else is relative to it.
+      seaU.uScale.value = 70 / viewSize;
+      seaU.uDetail.value = Math.max(0, Math.min(1, (0.55 - worldPerPixel) / 0.35));
     },
 
     update(dt) {
-      updateStreaks(dt);
+      // Wrapped, and highp in the shader. A plain seconds-since-load clock loses resolution fast
+      // in mediump -- past about 32 seconds the step exceeds a frame and the water judders.
+      seaTime = (seaTime + dt) % 3600;
+      seaU.uTime.value = seaTime;
     },
 
     render() {
       renderer.render(scene, camera);
+    },
+
+    adapt: (now, frameMs) => quality.sample(now, frameMs),
+    setAdaptive: (on) => quality.setEnabled(on),
+
+    get renderScale() {
+      return quality.scale;
     },
 
     resize,

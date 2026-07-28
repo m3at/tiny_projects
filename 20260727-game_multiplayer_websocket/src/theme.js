@@ -11,8 +11,12 @@ export const PLAYER = [
 ];
 
 export const SEA = {
-  background: 0x0a1017,
-  water: 0x15384c,
+  // What `water` used to render as once the hemisphere and sun lights were applied to a flat
+  // upward-facing plane. Under an orthographic camera both the normal and the view direction are
+  // constant across that plane, so every one of its pixels came out the same colour -- measured,
+  // not guessed: nine samples across the frame all read 172d3a. It is the clear colour now, and
+  // there is no sea mesh. See the rendering notes in CLAUDE.md.
+  water: 0x172d3a,
   arenaRing: 0x2c5670,
   windStreak: 0x6f9fb8,
   spar: 0xcabfa6, // masts, flagpoles, other bare timber

@@ -264,7 +264,9 @@ function endRound() {
     if (s.handsHad > 0) bits.push(`${s.hands} of ${s.handsHad} hands`);
     if (s.powder === 0) bits.push('powder gone');
     if (s.mastsHad > 0 && s.mastsLeft < s.mastsHad) {
-      bits.push(`${s.mastsHad - s.mastsLeft} of ${s.mastsHad} masts down`);
+      // "1 of 1 masts down" is the arithmetic, not the sentence. There is a word for that.
+      const lost = s.mastsHad - s.mastsLeft;
+      bits.push(s.mastsLeft === 0 ? 'dismasted' : `${lost} of ${s.mastsHad} masts down`);
     }
     lines.push(`<b>Player ${i + 1}</b> ${bits.join(', ')}`);
   }
@@ -321,7 +323,9 @@ function setAmmo(player, ammo) {
   if (phase !== 'battle' || !battle || battle.over) return;
   battle.setAmmo(player, ammo);
   setAmmoButtons(player, ammo);
-  audio.ui('tick');
+  // No sound. This is the one control that gets used *during* a battle, and a click on every
+  // switch is a tick-tock running under the gunfire -- most obvious in autoplay, where the bot
+  // flips ammunition every second or two. The buttons light up; that is enough.
 }
 
 document.querySelectorAll('.ammo-btn').forEach((btn) => {
@@ -368,7 +372,10 @@ function loop(now) {
   }
   const t1 = performance.now();
   sceneCtl.render();
-  perf.sample(t1 - t0, performance.now() - t1, dt);
+  // The real gap, not the clamped step. Passing dt here made every frame on a slow machine read as
+  // exactly 50ms, which is the clamp rather than a measurement, and hid the tail completely.
+  perf.sample(t1 - t0, performance.now() - t1, elapsed);
+  sceneCtl.adapt(now, elapsed * 1000);
   requestAnimationFrame(loop);
 }
 
@@ -460,6 +467,13 @@ globalThis.__game = {
 // ---------------------------------------------------------------------------
 
 $('btn-mute').onclick = toggleMute;
+
+// Only the buttons that commit to something make a sound. The build phase used to tick on every
+// card and every cell, which thirty parts in ninety seconds turns into a clock. Registered after
+// the handlers above so the mute toggle has already flipped: pressing it to unmute is audible,
+// pressing it to mute is not.
+$('ov-btn').addEventListener('click', () => audio.ui('confirm'));
+$('btn-mute').addEventListener('click', () => audio.ui('press'));
 
 sceneCtl.frame(0, 0, 60, true);
 sceneCtl.setWind(0.6);

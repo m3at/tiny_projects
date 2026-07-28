@@ -43,6 +43,10 @@ node tools/tune.js      sweep any constant and see what it costs on both counts
 node tools/ablate.js    disable one mechanic at a time and count what actually changes
 node tools/bench.js     simulation throughput, currently about 3,200 battles a second
 node tools/audio.js     render every sound offline: clipping, DC offset, onset clicks
+node tools/mix.js       what the mixer actually hears once a battle is shouting at it
+node tools/frames.js    frame times as a distribution, because stutter lives in the tail
+node tools/fill.js      what each layer of the scene costs to draw, one at a time
+node tools/playtest.js  plays a whole match through the real interface and complains
 ```
 
 Nearly every decision in the game was settled by one of those, and several confident guesses were wrong. The ships used to fire one volley and then sail off the map together — that turned out to be a one-line steering bug, not a tuning problem. Grape shot was silently killing an entire crew in a single volley. A ship with crew for half its guns could put every hand on the wrong side and never fire a shot.

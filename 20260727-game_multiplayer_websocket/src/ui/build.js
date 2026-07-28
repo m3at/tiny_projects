@@ -115,7 +115,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     $('hint').textContent = text;
   }
 
-  // A refused action says so twice: in the hint, and with a short flat tick.
+  // A refused action says so twice: in the hint, and with a knock and two falling notes.
   function deny(text) {
     audio.ui('deny');
     setHint(text);
@@ -146,8 +146,22 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
   const canvas = sceneCtl.renderer.domElement;
   const ndc = new THREE.Vector2();
 
+  // getBoundingClientRect flushes style and layout before it can answer, and pick() runs on every
+  // pointermove -- so moving the mouse across the hull was forcing a reflow of the whole build
+  // panel at mouse-report rate. The canvas is fixed to the viewport, so its rectangle only moves
+  // when the window does; read it then, and not in the hot path.
+  let rect = canvas.getBoundingClientRect();
+  const remeasure = () => {
+    rect = canvas.getBoundingClientRect();
+  };
+  // One AbortController owns every listener this build phase registers, so tearing them all down
+  // is a single abort() rather than a list that has to be kept in step with the list above it.
+  const listeners = new AbortController();
+  const on = { signal: listeners.signal };
+  addEventListener('resize', remeasure, on);
+  addEventListener('scroll', remeasure, { capture: true, signal: listeners.signal });
+
   function pick(event) {
-    const rect = canvas.getBoundingClientRect();
     ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     sceneCtl.raycaster.setFromCamera(ndc, sceneCtl.camera);
@@ -219,17 +233,21 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     renderAll();
   }
 
-  canvas.addEventListener('pointermove', onMove);
-  canvas.addEventListener('click', onClick);
-  canvas.addEventListener('contextmenu', onContext);
+  // Passive: none of these call preventDefault, and saying so lets the browser dispatch them
+  // without waiting to find out.
+  canvas.addEventListener('pointermove', onMove, { passive: true, signal: listeners.signal });
+  canvas.addEventListener('click', onClick, on);
+  canvas.addEventListener('contextmenu', onContext, on);
 
   $('btn-reroll').onclick = () => {
     if (scrap < REROLL_COST) return;
+    audio.ui('press');
     scrap -= REROLL_COST;
     offer = makeOffer(rng, design, hullIndex);
     renderAllWithHint();
   };
   $('btn-scrap').onclick = () => {
+    audio.ui('press');
     selected = selected === 'remove' ? null : 'remove';
     renderAllWithHint();
     view.setGhost(hoverKey, null);
@@ -238,6 +256,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
 
   // Worst damage first, so a partial purse still buys back the most broken parts.
   $('btn-refit').onclick = () => {
+    audio.ui('press');
     let repaired = 0;
     for (const [, slot] of damagedParts()) {
       const cost = repairCost(slot.id);
@@ -253,15 +272,18 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
   function finish() {
     if (done) return;
     done = true;
-    canvas.removeEventListener('pointermove', onMove);
-    canvas.removeEventListener('click', onClick);
-    canvas.removeEventListener('contextmenu', onContext);
+    listeners.abort();
     view.setGhost(null, null);
     view.setArcPreview(null, null);
     onLockIn(scrap);
   }
 
-  $('btn-lock').onclick = finish;
+  // The commit gets the one rising three-note sound in the game. On the click only: the countdown
+  // running out calls finish() too, and confirming there would claim a decision nobody made.
+  $('btn-lock').onclick = () => {
+    if (!done) audio.ui('confirm');
+    finish();
+  };
 
   attachFillButton(document.querySelector('#build-ui .tools'), () => {
     scrap = devFill(design, hullIndex, scrap);
@@ -281,9 +303,7 @@ export function startBuild({ sceneCtl, view, design, hullIndex, player, roundInd
     },
     destroy() {
       done = true;
-      canvas.removeEventListener('pointermove', onMove);
-      canvas.removeEventListener('click', onClick);
-      canvas.removeEventListener('contextmenu', onContext);
+      listeners.abort();
     },
   };
 }

@@ -22,32 +22,10 @@
 // Offline contexts are exempt from the autoplay gesture requirement, which is what makes this
 // possible headlessly at all.
 
-const PORT = 9222;
-const targets = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
-const page = targets.find((t) => t.type === 'page');
-if (!page) {
-  console.error('no page target; run ./tools/dev.sh first');
-  process.exit(1);
-}
+import { attach } from './cdp.js';
 
-const ws = new WebSocket(page.webSocketDebuggerUrl);
-await new Promise((r) => ws.addEventListener('open', r));
-let nextId = 1;
-const pending = new Map();
-ws.addEventListener('message', (ev) => {
-  const msg = JSON.parse(ev.data);
-  if (msg.id && pending.has(msg.id)) pending.get(msg.id)(msg);
-});
-const send = (method, params = {}) =>
-  new Promise((resolve) => {
-    const id = nextId++;
-    pending.set(id, resolve);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-
-await send('Runtime.enable');
-await send('Page.navigate', { url: 'http://127.0.0.1:8123/index.html' });
-await new Promise((r) => setTimeout(r, 1200));
+const page = await attach();
+await page.open('');
 
 // The measuring is done in the page so it can import the real module.
 const script = `(async () => {
@@ -98,42 +76,51 @@ const script = `(async () => {
 
   await add('cannon', 1.2, (s) => s.cannon({ when: 0.01 }));
   await add('cannon panned', 1.2, (s) => s.cannon({ when: 0.01, pan: -0.7 }));
-  await add('impact', 0.8, (s) => s.impact({ when: 0.01, size: 0.6 }));
-  await add('splash', 0.8, (s) => s.splash({ when: 0.01, size: 0.45 }));
+  await add('cannon in volley', 1.6, (s) => s.cannon({ when: 0.01, size: 0.4, weight: 1 }));
+  await add('impact round', 0.8, (s) => s.impact({ when: 0.01, size: 1 }));
+  await add('impact grape', 0.8, (s) => s.impact({ when: 0.01, size: 1, kind: 'grape' }));
+  await add('splinter', 0.8, (s) => s.splinter({ when: 0.01, size: 0.8 }));
+  await add('splash', 0.8, (s) => s.splash({ when: 0.01, size: 0.55 }));
   await add('timber break', 2.2, (s) => s.timberBreak({ when: 0.01, size: 0.6 }));
   await add('detonation', 3, (s) => s.detonation({ when: 0.01, size: 1.1 }));
-  await add('tick place', 0.3, (s) => s.tick({ when: 0.01, kind: 'place' }));
-  await add('tick deny', 0.3, (s) => s.tick({ when: 0.01, kind: 'deny' }));
+  await add('ui select', 0.3, (s) => s.ui('select', { when: 0.01 }));
+  await add('ui place', 0.3, (s) => s.ui('place', { when: 0.01 }));
+  await add('ui press', 0.3, (s) => s.ui('press', { when: 0.01 }));
+  await add('ui confirm', 0.8, (s) => s.ui('confirm', { when: 0.01 }));
+  await add('ui deny', 0.5, (s) => s.ui('deny', { when: 0.01 }));
   await add('ambience 4s', 4, (s) => s.ambience(true));
 
-  // A rolling broadside from a ship of the line: sixteen guns inside two seconds.
+  // A rolling broadside from a ship of the line, spaced and ducked the way play.js would: sixteen
+  // guns at the mixer's 28ms cadence, each one quieter and heavier than the last as the wall of
+  // sound builds. This is the case the level policy exists for.
   await add('broadside x16', 3, (s) => {
-    for (let i = 0; i < 16; i++) s.cannon({ when: 0.01 + i * 0.11, size: i % 3 ? 0.75 : 1 });
+    for (let i = 0; i < 16; i++) {
+      const weight = i / (i + 3);
+      s.cannon({ when: 0.01 + i * 0.028, size: (i % 3 ? 0.75 : 1) / Math.sqrt(1 + 0.5 * i), weight });
+    }
   });
 
-  // The worst moment the game can produce: both batteries, hits, splashes and a magazine at once.
+  // The worst moment the game can produce, at the density tools/mix.js actually measured: a burst
+  // of ten guns and twenty-two hits inside 250ms, with a magazine going up underneath. The old
+  // mixer could not reach this -- it discarded most of it -- so the level policy is what keeps the
+  // peak down now, and this is the check that it does.
   await add('worst case', 3.5, (s) => {
-    for (let i = 0; i < 14; i++) s.cannon({ when: 0.01 + i * 0.05, size: 1 });
-    for (let i = 0; i < 10; i++) s.impact({ when: 0.2 + i * 0.05, size: 0.6 });
-    for (let i = 0; i < 8; i++) s.splash({ when: 0.3 + i * 0.09, size: 0.45 });
+    for (let i = 0; i < 10; i++) {
+      s.cannon({ when: 0.01 + i * 0.028, size: 1 / Math.sqrt(1 + 0.5 * i), weight: i / (i + 3) });
+    }
+    for (let i = 0; i < 22; i++) {
+      s.impact({ when: 0.2 + i * 0.022, size: 1 / Math.sqrt(1 + 0.5 * i), kind: i % 2 ? 'grape' : 'round' });
+    }
+    for (let i = 0; i < 5; i++) s.splash({ when: 0.3 + i * 0.05, size: 0.55 / Math.sqrt(1 + 0.5 * i) });
     s.detonation({ when: 0.4, size: 1.1 });
     s.timberBreak({ when: 0.5, size: 0.6 });
+    s.splinter({ when: 0.62, size: 0.8 });
   });
 
   return JSON.stringify(rows);
 })()`;
 
-const res = await send('Runtime.evaluate', {
-  expression: script,
-  awaitPromise: true,
-  returnByValue: true,
-});
-if (res.result?.exceptionDetails) {
-  console.error(res.result.exceptionDetails.exception?.description || res.result.exceptionDetails.text);
-  process.exit(1);
-}
-
-const rows = JSON.parse(res.result.result.value);
+const rows = JSON.parse(await page.evalIn(script));
 console.log('  sound             peak    rms       dc  clipped  onset  verdict');
 let bad = 0;
 for (const [name, m] of rows) {
@@ -150,5 +137,4 @@ for (const [name, m] of rows) {
 }
 console.log(bad === 0 ? '\n  all clean' : `\n  ${bad} sound(s) need attention`);
 
-await send('Page.navigate', { url: 'about:blank' });
-ws.close();
+await page.close();
