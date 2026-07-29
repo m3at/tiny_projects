@@ -46,7 +46,7 @@ console.log(`  frozen at: ${setup}`);
 
 // 'everything' hides the lot, which gives the floor: the clear, the swap and the browser's own
 // compositing. Scene work can never get below it, so it says how much headroom is actually left.
-const LAYERS = ['sea', 'shots', 'puffs', 'rings', 'ships', 'everything'];
+const LAYERS = ['sea', 'shots', 'sprites', 'ships', 'everything'];
 
 // The whole sweep happens inside one page call, and this matters. An earlier version resized the
 // renderer once per layer over separate CDP round trips, and the times climbed monotonically

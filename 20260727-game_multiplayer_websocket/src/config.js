@@ -269,9 +269,10 @@ export const VERDICT_DELAY = 1.8;
 // A ship that has struck her colours goes under. Purely presentation -- the simulation took her out of
 // the fight the moment her helm went -- but it has to happen, because in a melee the survivors sail
 // straight over the wreck, and two hulls in the same water read as a bug rather than as a wreck being
-// passed. She fades into the sea colour rather than turning transparent: the deck plates are one shared
-// opaque material across every ship, so darkening toward the water is both cheaper than per-ship
-// transparency and a better picture than a ghost.
+// passed. The view stages a heel, a damaged-end pitch and a front-loaded descent, then fades toward
+// the sea colour rather than turning transparent: the deck plates are one shared opaque material
+// across every ship, so tinting is both cheaper than per-ship transparency and a better picture than
+// a ghost.
 export const SINK_TIME = 2.8;
 export const SINK_DROP = 2.4; // world units the hull settles by
 

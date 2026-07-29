@@ -24,6 +24,7 @@ export const SEA = {
   // not guessed: nine samples across the frame all read 172d3a. It is the clear colour now, and
   // there is no sea mesh. See the rendering notes in CLAUDE.md.
   water: 0x172d3a,
+  swell: 0x234353,
   arenaRing: 0x2c5670,
   windStreak: 0x6f9fb8,
   spar: 0xcabfa6, // masts, flagpoles, other bare timber
@@ -53,6 +54,8 @@ export const FX = {
   blastRing: 0xffd9a0,
   blastSmoke: 0x5a4a3c,
   splash: 0x9fd0e8,
+  foam: 0xb8deea,
+  wake: 0x6c9caf,
   roundShot: 0x22262b,
   grapeShot: 0xc8b48a,
   ghost: 0x445f33, // build-phase hover highlight

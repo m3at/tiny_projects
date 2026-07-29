@@ -2,6 +2,7 @@
 //
 //   node tools/frames.js            build phase and battle phase, one match
 //   node tools/frames.js 12         12 seconds in each phase
+//   node tools/frames.js 12 4       same measurement under a four-ship visual load
 //
 // Stutter is a tail problem. An average frame time says nothing about it: 4ms mean with one frame
 // in two hundred at 40ms reads as smooth on paper and hitches to the eye. This reports p50, p90,
@@ -17,8 +18,9 @@
 import { attach, sleep } from './cdp.js';
 
 const SECONDS = Number(process.argv[2] || 10);
+const PLAYERS = Math.max(2, Math.min(4, Number(process.argv[3] || 2)));
 const page = await attach();
-await page.open('?dev=draft&seed=31337&loop=1');
+await page.open(`?dev=draft&players=${PLAYERS}&seed=31337&loop=1`);
 
 function report(label, d, snap) {
   if (!d) return console.log(`  ${label}: no frames`);

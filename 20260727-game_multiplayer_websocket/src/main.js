@@ -94,13 +94,19 @@ function panels(which) {
   setVisible($('battle-ui'), which === 'battle');
 }
 
-function clearViews() {
+// Ships and transient effects are one piece of world presentation even though their batching has
+// different owners in the scene graph. Clear them together at every phase boundary. In particular,
+// FX meshes live directly under the scene rather than under a ship view; clearing only `views` left
+// the final battle's uploaded cannonballs and splashes frozen through the following build phase,
+// where fx.update() deliberately does not run.
+function clearPresentation() {
   for (const view of views) {
     if (!view) continue;
     sceneCtl.scene.remove(view.group);
     view.dispose();
   }
   views = [];
+  fx.reset();
 }
 
 function frameBuild(snap) {
@@ -113,8 +119,15 @@ function frameBuild(snap) {
 // them rather than the one distance a duel has.
 function framing() {
   const battle = battleOf();
-  const live = battle.ships.filter((s) => !s.out);
-  const ships = live.length ? live : battle.ships;
+  // Keep a newly struck ship in the composition while its sinking action plays. Cutting straight
+  // to the winner made even a good sinking animation happen at (or beyond) the edge of the frame.
+  // Once the wreck is visually under, a melee can return its attention to the ships still fighting.
+  const active = battle.ships.filter((s, i) => {
+    if (!s.out) return true;
+    const state = sinking.get(i);
+    return !state || state.progress < 0.76;
+  });
+  const ships = active.length ? active : battle.ships;
   let x = 0;
   let z = 0;
   for (const ship of ships) {
@@ -172,7 +185,7 @@ function startOnline({ code, name, spectate }) {
 function showMenu() {
   phase = 'menu';
   panels('menu');
-  clearViews();
+  clearPresentation();
   setTimer(null);
   setNetBar(null);
   sceneCtl.frame(0, 0, 60, true);
@@ -266,7 +279,7 @@ function showLobby(room) {
   if (client.isLocal) return;
   phase = 'lobby';
   panels('menu');
-  clearViews();
+  clearPresentation();
   lobbyView = buildLobby({
     room,
     mySeats: client.state.mySeats,
@@ -288,7 +301,7 @@ function showLobby(room) {
 function introOverlay(msg) {
   phase = 'intro';
   panels('menu');
-  clearViews();
+  clearPresentation();
   setTimer(null);
   const hullIndex = msg.hullIndex;
   setRound(msg.round, hullIndex);
@@ -324,7 +337,7 @@ function beginBuild() {
   hideOverlay();
   phase = 'build';
   panels('build');
-  clearViews();
+  clearPresentation();
   if (buildCtl) buildCtl.destroy();
 
   const seat = client.state.seat;
@@ -372,8 +385,7 @@ function beginBattle() {
     buildCtl.destroy();
     buildCtl = null;
   }
-  clearViews();
-  fx.reset();
+  clearPresentation();
   logPills = [];
   shownLogCount = 0;
   $('battle-log').innerHTML = '';
@@ -422,7 +434,7 @@ function beginBattle() {
 function watchBuild() {
   phase = 'watching';
   panels('menu');
-  clearViews();
+  clearPresentation();
   if (buildCtl) {
     buildCtl.destroy();
     buildCtl = null;
@@ -495,7 +507,7 @@ function showResult() {
       alt: again,
       button: 'New match',
       onClick: () => {
-        clearViews();
+        clearPresentation();
         client.state.result = null;
         client.disconnect();
         client = null;
@@ -623,7 +635,7 @@ function stepBattle(dt) {
     frameBattle(0.86);
     updateSinking(battle, endTimer);
     drain(battle);
-    fx.update(dt * slow, battle.projectiles);
+    fx.update(dt * slow, battle.projectiles, battle.ships);
     for (const view of views) if (view) view.animate(dt * slow);
     if (endTimer > VERDICT_DELAY && pendingResult) showResult();
     return;
@@ -638,17 +650,18 @@ function stepBattle(dt) {
   }
   updateBattlePanels(battle, dt);
   frameBattle();
-  fx.update(dt, battle.projectiles);
+  fx.update(dt, battle.projectiles, battle.ships);
 }
 
 // A ship that struck her colours settles into the water over SINK_TIME. In a duel the battle ends the
 // moment it happens, so it plays out under the slow motion; in a melee the survivors fight on over the
 // wreck, which is the case this exists for.
 //
-// The splashes on the way down are pushed into the effect stream rather than drawn directly, so they
-// get the splash sound as well as the ring. Nothing in sim/ reads effects -- the authority clears them
-// unread -- so adding to the list from the renderer's side is presentation and stays presentation.
-const sinking = new Set();
+// The onset sound is pushed into the effect stream; the staged foam and water crowns go straight to
+// the visual batch so four bursts do not schedule four splash voices. Nothing in sim/ reads either
+// presentation path.
+const sinking = new Map();
+const SINK_BURSTS = [0, 0.2, 0.43, 0.68];
 
 // `extra` is seconds to add on top of the battle clock, for the case where the battle clock has
 // stopped: once the round is over the simulation is frozen, so the last ship down would settle by
@@ -658,20 +671,23 @@ function updateSinking(battle, extra = 0) {
     const ship = battle.ships[i];
     const view = views[i];
     if (!view || !ship.out) continue;
-    if (!sinking.has(i)) {
-      sinking.add(i);
-      const rng = Math.random;
-      for (let n = 0; n < 7; n++) {
-        const a = (n / 7) * Math.PI * 2;
-        const r = 3 + rng() * 4;
-        battle.effects.push({
-          type: 'splash',
-          x: ship.x + Math.sin(a) * r,
-          z: ship.z + Math.cos(a) * r,
-        });
-      }
+    let state = sinking.get(i);
+    if (!state) {
+      state = { nextBurst: 0, progress: 0 };
+      sinking.set(i, state);
+      // One weighty onset rather than seven simultaneous splash voices. The staged visual bursts
+      // below are presentation-only and do not crowd the audio scheduler.
+      battle.effects.push({ type: 'sink', x: ship.x, z: ship.z });
     }
-    view.setSunk((battle.time - ship.outAt + extra) / SINK_TIME);
+    const progress = (battle.time - ship.outAt + extra) / SINK_TIME;
+    state.progress = progress;
+    while (
+      state.nextBurst < SINK_BURSTS.length &&
+      progress >= SINK_BURSTS[state.nextBurst]
+    ) {
+      fx.sinkBurst(ship, state.nextBurst++);
+    }
+    view.setSunk(progress);
   }
 }
 

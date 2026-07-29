@@ -136,6 +136,9 @@ const ZERO = new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 export function createShipView({ design, hullIndex, player, interactive = false }) {
   const group = new THREE.Group();
+  // Yaw first, then local pitch and roll. That lets a sinking hull heel in its own frame without
+  // changing the battle heading that syncFromBattle writes every frame.
+  group.rotation.order = 'YXZ';
   const hull = HULLS[hullIndex];
   const colours = PLAYER[player];
   const capacity = hull.cells.length;
@@ -390,7 +393,7 @@ export function createShipView({ design, hullIndex, player, interactive = false 
     // so writing a flat zero here quietly undid the whole descent -- the ship faded on the spot
     // without ever settling.
     group.position.set(ship.x, -SINK_DROP * sunk, ship.z);
-    group.rotation.y = -ship.heading;
+    group.rotation.set(sinkPitch, -ship.heading, sinkRoll);
 
     for (const cell of ship.cells) {
       const view = cells.get(cell.key);
@@ -421,8 +424,14 @@ export function createShipView({ design, hullIndex, player, interactive = false 
   // A colour rewrite is O(cells) and would be wasteful every frame for two and a half seconds, so it
   // only happens when the amount has actually moved -- which for a fade nobody is looking at closely
   // is about fifty times over the whole descent.
+  let sinkProgress = 0;
   let sunk = 0;
   let sunkDrawn = -1;
+  let sinkRoll = 0;
+  let sinkPitch = 0;
+  let sinkBiasReady = false;
+  let rollSign = player % 2 ? -1 : 1;
+  let pitchSign = player % 3 ? 1 : -1;
   const seaTint = new THREE.Color(SEA.water);
 
   function sinkTint(colour) {
@@ -431,9 +440,33 @@ export function createShipView({ design, hullIndex, player, interactive = false 
 
   function setSunk(amount) {
     const next = Math.max(0, Math.min(1, amount));
-    if (next === sunk) return;
-    sunk = next;
+    if (next === sinkProgress) return;
+    sinkProgress = next;
+    if (!sinkBiasReady && next > 0) {
+      // The presentation leans toward the side that actually came apart. It is computed once from
+      // the already-known dead cells, so there is no per-frame scan and no simulation input.
+      let dx = 0;
+      let dz = 0;
+      for (const key of dead) {
+        const cell = cells.get(key);
+        if (cell) {
+          dx += cell.dx;
+          dz += cell.dz;
+        }
+      }
+      if (Math.abs(dx) > 0.5) rollSign = Math.sign(dx);
+      if (Math.abs(dz) > 0.5) pitchSign = Math.sign(dz);
+      sinkBiasReady = true;
+    }
+    const descentT = Math.max(0, Math.min(1, (next - 0.08) / 0.68));
+    const descent = descentT * descentT * (3 - 2 * descentT);
+    const heel = Math.min(1, next / 0.2);
+    sunk = descent;
+    sinkRoll = rollSign * (0.06 * heel + 0.22 * descent);
+    sinkPitch = pitchSign * 0.1 * descent;
     group.position.y = -SINK_DROP * sunk;
+    group.rotation.x = sinkPitch;
+    group.rotation.z = sinkRoll;
     silhouette.material.opacity = 0.22 * (1 - sunk);
     for (const mesh of [prow, flag]) {
       mesh.material.transparent = true;

@@ -1,4 +1,4 @@
-// The sea and the wind, as one full-screen triangle.
+// The sea and the wind, as one opaque full-screen pass.
 //
 // This replaces two things: the flat clear colour, and the 420 translucent quads that used to drift
 // downwind to show wind direction. tools/fill.js priced those quads at 46% of a 720p frame and 29%
@@ -21,9 +21,10 @@
 // plane was computing one colour two million times a frame. Banding a scalar field is view
 // independent, so it is the shape of shading that actually survives here.
 //
-// The pattern is squashed along the wind axis. Stretching isotropic noise 7:1 turns blobs into
-// wind-aligned streaks for free, which is the entire trick: the thing the 420 quads existed to
-// convey now falls out of one noise lookup.
+// Water and wind are deliberately different signals. Two slow crossing swells are evaluated at
+// the vertices of a modest screen grid and interpolated over the pixels. The fragment shader only
+// adds sparse, quick wind crests. This makes the water feel like water instead of a scrolling wind
+// texture, while moving the new work from millions of fragments to a few thousand vertices.
 
 import * as THREE from 'three';
 import { ARENA_RADIUS } from '../config.js';
@@ -39,9 +40,14 @@ const VERT = /* glsl */ `
   // uMap is (target.x, target.z, halfWidthWorld, -halfHeightWorld / sin(tilt)). The tilt divisor is
   // there because a 60-degree camera foreshortens the z axis by exactly that much.
   uniform vec4 uMap;
+  uniform float uTime;
   varying vec2 vWorld;
+  varying float vSwell;
   void main() {
     vWorld = uMap.xy + position.xy * uMap.zw;
+    float a = sin(dot(vWorld, vec2(0.083, 0.031)) + uTime * 0.32);
+    float b = sin(dot(vWorld, vec2(-0.047, 0.071)) - uTime * 0.21);
+    vSwell = 0.65 * a + 0.35 * b;
     gl_Position = vec4(position.xy, 0.0, 1.0);
   }
 `;
@@ -57,8 +63,10 @@ const FRAG = /* glsl */ `
   uniform vec2 uRing;    // arena boundary: centreline radius, half thickness
   uniform vec3 uRingCol;
   uniform vec3 uDeep;
+  uniform vec3 uSwell;
   uniform vec3 uFoam;
   varying vec2 vWorld;
+  varying float vSwell;
 
   // Deliberately no sin() in the hash: sin is not bit-specified in GLSL ES, so the popular
   // fract(sin(dot(...))) form gives visibly different water on different GPUs, and its argument
@@ -111,9 +119,9 @@ const FRAG = /* glsl */ `
     // picks out sparse wind-aligned lines, which is what the old quads drew and what keeps the sea
     // behind the ships rather than beside them. The first pass banded the whole range and the
     // result fought the ships for attention -- legibility is the constraint here, not prettiness.
-    float crest = smoothstep(0.40, 0.86, h);
-    float wash = smoothstep(-0.75, 0.75, h);
-    vec3 col = mix(uDeep, uFoam, (crest * 0.13 + wash * 0.03) * uDetail);
+    float crest = smoothstep(0.66, 0.93, h);
+    vec3 col = mix(uDeep, uSwell, (0.5 + 0.5 * vSwell) * 0.18);
+    col = mix(col, uFoam, crest * 0.09 * uDetail);
 
     // The arena boundary, drawn here rather than as a mesh. It used to be a 128-segment ring with
     // a transparent material -- a whole blended draw call for a circle the shader can express as a
@@ -131,13 +139,10 @@ const FRAG = /* glsl */ `
 `;
 
 export function createSea() {
-  // One triangle covering the viewport, not two. A quad has a diagonal seam through the middle,
-  // which shades a strip of pixels twice and puts a derivative discontinuity across the screen.
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    'position',
-    new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3),
-  );
+  // A screen-space grid lets the slow swell live in the vertex shader. At 64 by 36 it is smooth at
+  // every supported resolution (the wavelengths are hundreds of pixels) and is still only 2,405
+  // vertices -- negligible beside the fragment work it avoids.
+  const geometry = new THREE.PlaneGeometry(2, 2, 64, 36);
 
   const material = new THREE.ShaderMaterial({
     vertexShader: VERT,
@@ -154,6 +159,7 @@ export function createSea() {
       uRing: { value: new THREE.Vector2(ARENA_RADIUS - 0.45, 0.45) },
       uRingCol: { value: new THREE.Color(SEA.arenaRing) },
       uDeep: { value: new THREE.Color(SEA.water) },
+      uSwell: { value: new THREE.Color(SEA.swell) },
       uFoam: { value: new THREE.Color(SEA.windStreak) },
     },
     depthTest: false,

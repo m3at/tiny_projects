@@ -50,6 +50,25 @@ await page.reachPhase('build');
 
 const state = () => page.json('__dev.state()');
 
+async function checkBuildHasNoBattleFx(label) {
+  const fxState = await page.json(`(() => {
+    const scene = globalThis.__game.sceneCtl.scene;
+    const shots = scene.getObjectByName('shots');
+    const sprites = scene.getObjectByName('sprites');
+    return {
+      shots: shots ? shots.count : -1,
+      shotsVisible: shots ? shots.visible : true,
+      sprites: sprites ? sprites.geometry.instanceCount : -1,
+      spritesVisible: sprites ? sprites.visible : true,
+    };
+  })()`);
+  check(
+    fxState.shots === 0 && !fxState.shotsVisible &&
+      fxState.sprites === 0 && !fxState.spritesVisible,
+    `${label}: battle FX remained in the build scene (${JSON.stringify(fxState)})`,
+  );
+}
+
 // Fill a ship by hand: guns on the flanks, crew and powder on the spine, timber in the gaps.
 async function buildShip(label) {
   const s = await state();
@@ -107,6 +126,7 @@ for (let round = 1; round <= 5; round++) {
   if (!(await page.reachPhase('build'))) { check(false, `never reached build for round ${round}`); break; }
 
   check(await reachSeat(0), `round ${round}: player 1 never got the keyboard`);
+  await checkBuildHasNoBattleFx(`round ${round}`);
   await buildShip(`round ${round} player 1`);
   await evalIn(`__dev.tool('btn-lock')`);
   await sleep(400);

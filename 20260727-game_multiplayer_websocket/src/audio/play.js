@@ -221,6 +221,11 @@ export function consume(effects) {
         if (s) sfx.splash({ when: s.at, size: LEVEL.splash * s.gain, pan: panOf(e.x) });
         break;
       }
+      case 'sink': {
+        const s = slot('splash');
+        if (s) sfx.splash({ when: s.at, size: LEVEL.splash * 1.45 * s.gain, pan: panOf(e.x) });
+        break;
+      }
       // A mast going over the side is a second and a half of rigging and rope; anything else is a
       // cell coming apart, which is short. Using the long sound for both made every destroyed
       // timber sound like a dismasting, and there are twenty of those a battle.

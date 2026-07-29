@@ -65,7 +65,7 @@ export function createScene(canvas) {
   // Corrected to the compositor's real ratio by the ResizeObserver below; this is only the value
   // used for the very first frame, before layout has been observed once.
   let deviceRatio = Math.min(devicePixelRatio, MAX_RATIO);
-  // The sea triangle covers every pixel, so this is only what shows for the frame or two before it
+  // The sea pass covers every pixel, so this is only what shows for the frame or two before it
   // first draws, and after a context restore.
   renderer.setClearColor(SEA.water);
 
@@ -82,7 +82,7 @@ export function createScene(canvas) {
   scene.add(sun);
 
   // ---- sea, wind and the arena boundary ----
-  // One unlit full-screen triangle. render/sea.js explains why it is a shader rather than a lit
+  // One unlit full-screen pass. render/sea.js explains why it is a shader rather than a lit
   // plane, 420 drifting quads and a ring mesh -- all three of which it replaced.
   const sea = createSea();
   const seaU = sea.material.uniforms;

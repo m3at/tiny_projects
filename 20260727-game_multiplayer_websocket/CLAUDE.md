@@ -353,7 +353,7 @@ server/            the host process. Node, no dependencies
   main.js          static files and rooms on one port
   ws.js            RFC 6455, by hand: handshake, framing, fragments, ping, close
 src/render/        three.js scene, ship meshes, particles, glyph textures
-  sea.js           the sea, the wind and the arena ring, as one full-screen triangle
+  sea.js           the sea, the wind and the arena ring, as one opaque full-screen pass
   gpuTimer.js      non-blocking GPU timer queries, optional and context-loss safe
   quality.js       GPU-aware adaptive resolution, wall-time fallback
 src/audio/sfx.js   every sound, synthesised. Takes a context, so it renders offline for testing
@@ -517,12 +517,16 @@ colour carries part identity *and* damage tint, so a single material serves ever
 ship. Ship movement is a transform on the group, so instance matrices are only rewritten when
 a cell's condition actually changes.
 
-Particles are three instanced meshes. Everything lies flat on the water and blends additively,
-which means the flat rotation bakes into the geometry (instance matrices are translate+scale
-only) and opacity rides in `instanceColor`, since fading additively is the same as darkening.
+Transient visuals are two instanced draws: opaque cannonballs, and one atlas-backed sprite batch for
+smoke, flashes, timber, splashes, foam, wakes and shot trails. A sprite can face the camera or lie on
+the sea, so volume and water contact do not look like the same painted circle. The sprite material
+uses premultiplied alpha: pale flashes stay bright, while grey smoke veils instead of adding light.
+Its particle records are retained after swap-removal, and four direct wake instances need no records.
 
-A ship that strikes her colours fades into the sea colour rather than turning transparent, and the
-reason is the shared materials. One `MeshLambertMaterial` serves the deck plates of every ship, so
+A ship that strikes her colours heels toward its damaged side, pitches toward the end that came
+apart, and descends through staged water crowns and foam. It also fades into the sea colour rather
+than turning transparent, and the reason is the shared materials. One `MeshLambertMaterial` serves
+the deck plates of every ship, so
 lowering its opacity would fade the whole fleet; the part glyphs and the flagpole share materials too.
 So the wreck is darkened toward `SEA.water` through the per-instance colours it already owns, the
 handful of materials that *are* per view are faded properly, and the two on shared materials -- the
@@ -532,7 +536,9 @@ hidden once it is within half a percent of the water's colour, since an invisibl
 draw call per part layer.
 
 This matters more than it sounds: in a melee the survivors sail straight over the wreck, so without it
-two hulls occupy the same water and it reads as a bug rather than as a wreck being passed.
+two hulls occupy the same water and it reads as a bug rather than as a wreck being passed. The battle
+camera keeps a recent wreck in its composition until that action is under; cutting immediately to
+the winner had put the entire sinking sequence beyond the edge of the frame.
 
 Anything called per frame must be dirty-tracked. `hud.js` guards every DOM write; `scene.js`
 only resizes the canvas and rebuilds the projection when something changed.
@@ -566,16 +572,21 @@ The sea was 60% of everything drawn, and it was drawing a constant:
 - `tools/fill.js` also reports the floor: with every mesh hidden a frame costs 0.7ms, so the clear
   and the swap are free and anything left to win is in the scene.
 
-`render/sea.js` then replaced both the flat colour and the 420 wind-streak quads with one
-full-screen triangle. The quads were the largest layer left -- 46% of a 720p frame -- and they were
+`render/sea.js` then replaced both the flat colour and the 420 wind-streak quads with one opaque
+full-screen pass. The quads were the largest layer left -- 46% of a 720p frame -- and they were
 decoration; worse, they were alpha-blended and overlapping, which on a tile-based mobile GPU
 switches off the hidden-surface removal the architecture is built around. Notes on it:
 
 - The vertex shader has no matrix. An orthographic projection has no perspective divide, so screen
   to the y=0 plane is a scale and an offset; checked against a real unproject-and-raycast at 1e-13
   world units. The z term carries the 60-degree foreshortening.
-- Wind falls out for free by stretching a sparse cellular field about 7:1 along the wind axis. The
-  thing 420 quads existed to convey is one hash per soft streak cell and a rotation.
+- Water and wind are separate signals. Two slow crossing, wind-independent swells are evaluated on
+  a 64x36 screen grid in the vertex shader and interpolated; millions of fragments only mix the
+  resulting scalar. Wind remains a much faster sparse cellular field stretched about 7:1 along its
+  own axis. The sea now moves without looking like the wind texture is scrolling.
+- The modest grid is 2,405 vertices / 4,608 triangles. Two `sin` calls there are negligible and
+  cheaper on a phone than adding even a small analytic wave to every one of two million fragments.
+  They are presentation-only, so cross-engine simulation determinism is irrelevant.
 - Threshold high. The first pass banded the whole range and the sea fought the ships for attention;
   only the crests catch light now. Legibility is the constraint on a game board, not prettiness.
 - No `sin()` in the hash. `sin` is not bit-specified in GLSL ES, so the popular
@@ -590,9 +601,10 @@ switches off the hidden-surface removal the architecture is built around. Notes 
   gets quantised away.
 
 The absolute software-rasteriser number is not a GPU number. With Chrome explicitly running through
-ANGLE Metal on an M3, the complete no-MSAA frame measures about 0.14ms at 1080p and remains far below
-budget at 4K. SwiftShader is still useful for paired layer costs and stress, not for predicting a
-phone's milliseconds.
+ANGLE Metal on an M3 after the visual pass, paired fill measures the complete frame around 0.25ms
+and the sea around 0.10ms at 1080p; asynchronous presented-frame timings put battle GPU p99 at
+3.72ms with two ships and 3.58ms with four. Both hold scale 1. SwiftShader is still useful for paired
+layer costs and stress, not for predicting a phone's milliseconds.
 
 Adaptive resolution is what promises 60fps on hardware not yet measured, because frame cost is very
 nearly linear in pixel count. `gpuTimer.js` samples one frame in four with
@@ -645,10 +657,10 @@ Two smaller ones from the same pass:
   non-instanced standard material in the scene, so nothing else kept its compiled program alive.
   One cached material per part type, and one mesh whose geometry and material are swapped. Arc
   preview rings were likewise rebuilt per hover and are now cached by shape.
-- Marking an instance attribute dirty re-uploads the *whole* array, and `fx.js` sizes its arrays for
-  400 shot and 220 puffs. A typical battle has a handful, so it was sending about 50KB a frame to
-  describe a dozen particles, and sending it when there were none. `addUpdateRange` bounds the
-  upload to what was written, and an empty layer uploads nothing.
+- Marking an instance attribute dirty re-uploads the *whole* array. `fx.js` sizes for 400 shot and
+  720 atlas sprites, but a typical battle has a handful; `addUpdateRange` bounds uploads to the live
+  prefix, and an empty layer uploads nothing. The custom sprite instance is 12 floats instead of an
+  instance matrix plus colour's 19.
 - Anything flat that ends up facing the camera after its `rotateX(-Math.PI / 2)` -- the impact
   rings, the arc bands, the prow -- is `FrontSide`, so back-face culling drops half its triangles.
   The stern flag is the one real `DoubleSide`: it turns with the ship.
