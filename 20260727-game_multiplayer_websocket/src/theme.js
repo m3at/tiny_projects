@@ -18,15 +18,14 @@ export const PLAYER = [
 ];
 
 export const SEA = {
-  // What `water` used to render as once the hemisphere and sun lights were applied to a flat
-  // upward-facing plane. Under an orthographic camera both the normal and the view direction are
-  // constant across that plane, so every one of its pixels came out the same colour -- measured,
-  // not guessed: nine samples across the frame all read 172d3a. It is the clear colour now, and
-  // there is no sea mesh. See the rendering notes in CLAUDE.md.
-  water: 0x172d3a,
-  swell: 0x234353,
-  arenaRing: 0x2c5670,
-  windStreak: 0x6f9fb8,
+  // A narrow illustrated palette rather than physically based water. Large Gerstner facets walk
+  // through these colours; keeping their values below the decks preserves the ships' silhouette.
+  deep: 0x102934,
+  water: 0x173742,
+  swell: 0x214c5a,
+  glint: 0x467782,
+  foam: 0xa6cdd1,
+  arenaRing: 0x347083,
   spar: 0xcabfa6, // masts, flagpoles, other bare timber
 };
 

@@ -2,16 +2,15 @@
 //
 // The old renderer was already well batched, but every event was either the same Gaussian circle
 // or the same geometric ring. This keeps the batching and replaces the vocabulary: one tiny atlas
-// and one sprite shader can draw smoke, flashes, timber, water crowns, foam, wakes and shot streaks.
+// and one sprite shader can draw smoke, flashes, timber, water crowns and foam.
 // Sprites may face the camera or lie on the sea, so volume and water contact no longer look alike.
 
 import * as THREE from 'three';
-import { BASE_SPEED } from '../config.js';
 import { fxAtlasTexture, FX_TILE } from './glyphs.js';
 import { FX } from '../theme.js';
 
 const MAX_SHOT = 400;
-const MAX_SPRITE = 720; // persistent effects + round-shot trails + four wakes
+const MAX_SPRITE = 720;
 
 function writeTS(array, i, x, y, z, s) {
   const o = i * 16;
@@ -60,8 +59,10 @@ const SPRITE_VERT = /* glsl */ `
       // Camera-facing: smoke and debris have height instead of lying painted on the water.
       mvPosition = centre + vec4(corner, 0.0, 0.0);
     } else {
-      // Sea-facing: foam, wakes and shot trails stay attached to the surface.
-      mvPosition = modelViewMatrix * vec4(iPosition + vec3(corner.x, 0.0, corner.y), 1.0);
+      // Sea-facing: foam stays attached to the surface.
+      // Negating y preserves the quad's front-face winding when XY is folded onto XZ. Without it
+      // every sea-facing sprite was back-face culled; only the camera-facing half of the atlas drew.
+      mvPosition = modelViewMatrix * vec4(iPosition + vec3(corner.x, 0.0, -corner.y), 1.0);
     }
     gl_Position = projectionMatrix * mvPosition;
     vUv = position.xy + 0.5;
@@ -220,7 +221,7 @@ export function createFx(scene) {
 
   function foam(x, z, size, life = 0.7, opacity = 0.58, angle = 0) {
     spawn(
-      x, 0.12, z, FX_TILE.foam, FX.foam, life,
+      x, 0.35, z, FX_TILE.foam, FX.foam, life,
       size * 0.35, size * 0.22, size, size * 0.6,
       opacity, 0, angle, 0, 0, 0, between(-0.2, 0.2), 0, 1.4,
     );
@@ -316,7 +317,6 @@ export function createFx(scene) {
             2.3, 3.8, 4.8, 6.8, 0.72, 1, between(-0.3, 0.3),
             0, 2.5, 0, 0, 8,
           );
-          foam(e.x, e.z, 4.3, 0.65, 0.48, between(-Math.PI, Math.PI));
           break;
         default:
           break;
@@ -332,7 +332,7 @@ export function createFx(scene) {
     tiles.setXY(i, tile, facing);
   }
 
-  function update(dt, projectiles, ships = []) {
+  function update(dt, projectiles) {
     let shotCount = 0;
     for (const p of projectiles) {
       if (shotCount >= MAX_SHOT) break;
@@ -388,32 +388,6 @@ export function createFx(scene) {
       );
     }
 
-    // Round shot gets a tiny tapered motion mark. Grape remains discrete so ammunition types read
-    // differently, and these are direct instances rather than stored particles.
-    for (const p of projectiles) {
-      if (n >= MAX_SPRITE || p.kind === 'grape') continue;
-      writeSprite(
-        n++, p.x - p.vx * 0.012, 0.35, p.z - p.vz * 0.012,
-        3.2, 0.42, Math.atan2(p.vz, p.vx),
-        FX.impactRound, 0.28, FX_TILE.streak, 0,
-      );
-    }
-
-    // At most four direct instances. The sea is intentionally calm; wakes now carry the local
-    // motion cue and make the ships feel connected to the water.
-    for (const ship of ships) {
-      if (n >= MAX_SPRITE || ship.out || ship.speed < 0.15) continue;
-      const forwardX = ship.sin;
-      const forwardZ = -ship.cos;
-      const strength = Math.min(1, ship.speed / BASE_SPEED);
-      writeSprite(
-        n++,
-        ship.x - forwardX * 5.8, 0.08, ship.z - forwardZ * 5.8,
-        7 + strength * 3, 10 + strength * 5, ship.heading,
-        FX.wake, 0.11 + strength * 0.17, FX_TILE.wake, 0,
-      );
-    }
-
     spriteGeo.instanceCount = n;
     sprites.visible = n > 0;
     if (n > 0) {
@@ -433,7 +407,6 @@ export function createFx(scene) {
     const side = stage === 0 ? 0 : (stage % 2 ? -1 : 1) * 2.8;
     const x = ship.x + forwardX * along + sideX * side;
     const z = ship.z + forwardZ * along + sideZ * side;
-    foam(x, z, stage === 0 ? 18 : 9, stage === 0 ? 1.25 : 0.85, stage === 0 ? 0.7 : 0.5, ship.heading);
     if (stage < 3) {
       spawn(
         x, 0.8, z, FX_TILE.splash, FX.splash, 0.65,

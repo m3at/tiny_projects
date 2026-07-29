@@ -190,7 +190,8 @@ export function createScene(canvas) {
     // The arena grows with the number of ships in it, and the boundary is drawn by the sea shader
     // rather than by a mesh, so moving it is a uniform.
     setArenaRadius(radius) {
-      seaU.uRing.value.set(radius - 0.45, 0.45);
+      const centre = radius - 0.45;
+      seaU.uRing.value.set(centre * centre, 2 * centre * 0.45, 2 * centre);
     },
 
     // Ease toward a framing rather than snapping, so the battle camera glides.
@@ -217,8 +218,6 @@ export function createScene(canvas) {
       const worldPerPixel =
         (2 * viewSize * aspect) / Math.max(1, lastWidth * renderer.getPixelRatio());
       seaU.uPx.value = worldPerPixel;
-      // 70 is the battle framing the sea was tuned against; everything else is relative to it.
-      seaU.uScale.value = 70 / viewSize;
       seaU.uDetail.value = Math.max(0, Math.min(1, (0.55 - worldPerPixel) / 0.35));
     },
 
