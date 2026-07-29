@@ -58,6 +58,9 @@ export const dev = {
   room: params.get('room'),
   watch: params.get('watch') === '1',
   name: params.get('name'),
+  // The official Three.js FPS/MS panel is on for interactive dev sessions. Render tools opt out so
+  // profiling measures the game rather than the panel repainting its own canvas.
+  stats: params.get('stats') !== '0',
 };
 
 function clampPlayers(n) {

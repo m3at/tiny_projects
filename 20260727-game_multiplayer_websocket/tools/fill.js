@@ -30,7 +30,7 @@ const SIZES = argW && argH ? [[argW, argH]] : [[854, 480], [1280, 720], [1920, 1
 
 const page = await attach();
 const { evalIn } = page;
-await page.open('?dev=draft&seed=5150&loop=1');
+await page.open('?dev=draft&seed=5150&loop=1&stats=0');
 await page.reachPhase('battle');
 
 // Wind the battle to a busy moment and freeze it, so every measurement draws the same frame. A

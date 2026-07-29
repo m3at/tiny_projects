@@ -41,7 +41,7 @@ const arcGeoCache = new Map();
 //
 // The usual objection is that Lambert shades per vertex and would band these boxes. That has been
 // false since r144: Lambert has been per-fragment for years and the three.js *manual* still says
-// otherwise, while its own API docs say per-fragment. Verified in the vendored r169 source, whose
+// otherwise, while its own API docs say per-fragment. Verified in the vendored r185 source, whose
 // Lambert fragment shader runs RE_Direct_Lambert against the interpolated normal exactly as
 // Standard does. The only thing given up is the specular term.
 const partMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });

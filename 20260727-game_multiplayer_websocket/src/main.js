@@ -57,6 +57,21 @@ const canvas = $('view');
 const sceneCtl = createScene(canvas);
 const fx = createFx(sceneCtl.scene);
 const perf = createPerf();
+let devStats = null;
+
+// The official Three.js demos use stats.js for this small click-to-cycle FPS/MS graph. Load the
+// vendored helper only for a dev URL, so the normal game neither downloads it nor pays for its
+// canvas update every frame.
+if (dev.enabled && dev.stats) {
+  import('../vendor/stats.module.js').then(({ default: Stats }) => {
+    devStats = new Stats();
+    // The official demos put this at top-left, where Broadside's score lives. Keep the familiar
+    // panel and click-to-cycle behaviour but dock it below the battle UI.
+    devStats.dom.style.top = 'auto';
+    devStats.dom.style.bottom = '0';
+    document.body.appendChild(devStats.dom);
+  });
+}
 
 let client = null;
 let phase = 'menu';
@@ -573,6 +588,7 @@ let last = performance.now();
 let gpuSamples = [];
 
 function loop(now) {
+  devStats?.begin();
   const elapsed = (now - last) / 1000;
   // The simulation and every animation get a clamped step, so one long frame cannot teleport a
   // ship across the arena. Both stop when the tab does, which is the behaviour you want when
@@ -599,6 +615,7 @@ function loop(now) {
   // The real gap, not the clamped step. Passing dt here made every frame on a slow machine read as
   // exactly 50ms, which is the clamp rather than a measurement, and hid the tail completely.
   perf.sample(t1 - t0, performance.now() - t1, elapsed);
+  devStats?.end();
   requestAnimationFrame(loop);
 }
 

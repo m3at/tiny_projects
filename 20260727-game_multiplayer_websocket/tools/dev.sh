@@ -63,5 +63,6 @@ log      ${TMPDIR:-/tmp}/broadside-server.log
   node tools/netplay.js          two real browsers through a whole online match
   node tools/melee.js            three and four ships: length, seat fairness, builds
   node tools/playtest.js         a local match through the real interface
+  node tools/render.js           frame tails + layer costs + browser CPU profile
   node tools/shot.js out.png "1500 ;; ovBtn() ;; 800"
 EOF

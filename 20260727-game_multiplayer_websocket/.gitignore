@@ -1,1 +1,4 @@
+# Ignore vendored threejs r185 files for now
+vendor/stats.module.js
+vendor/three.core.js
 vendor/three.module.js

@@ -20,7 +20,7 @@ import { attach, sleep } from './cdp.js';
 const SECONDS = Number(process.argv[2] || 10);
 const PLAYERS = Math.max(2, Math.min(4, Number(process.argv[3] || 2)));
 const page = await attach();
-await page.open(`?dev=draft&players=${PLAYERS}&seed=31337&loop=1`);
+await page.open(`?dev=draft&players=${PLAYERS}&seed=31337&loop=1&stats=0`);
 
 function report(label, d, snap) {
   if (!d) return console.log(`  ${label}: no frames`);

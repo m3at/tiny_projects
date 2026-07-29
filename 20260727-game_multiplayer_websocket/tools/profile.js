@@ -25,7 +25,7 @@ const PHASE = process.argv[3] || 'battle';
 
 const page = await attach();
 const { send, evalIn } = page;
-await page.open('?dev=draft&seed=7777&loop=1');
+await page.open('?dev=draft&seed=7777&loop=1&stats=0');
 
 await page.reachPhase(PHASE);
 console.log(`  profiling ${SECONDS}s of the ${await evalIn('__dev.state().phase')} phase`);

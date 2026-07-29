@@ -634,7 +634,7 @@ Material choice is the second lever, and the folklore about it is wrong:
   approximation -- including an `exp2` -- purely to compute a slight diffuse darkening.
 - The objection is that Lambert shades per vertex and would band the boxes. That has been false
   since r144. Lambert is per-fragment, and the three.js *manual* still says otherwise while its own
-  API docs say per-fragment; the vendored r169 source settles it. Only the specular term is lost.
+  API docs say per-fragment; the vendored r185 source settles it. Only the specular term is lost.
 - Measured, ships alone at 1280x720: 4.08ms with Standard, 2.888ms with Lambert, 29% off that
   layer. Visually free -- swapping the materials on one frozen frame moved 0.3% of pixels and not
   one of them by more than 9 of 255.

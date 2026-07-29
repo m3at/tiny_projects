@@ -62,8 +62,11 @@ const VERT = /* glsl */ `
 
     vec2 across = vec2(-uWind.y, uWind.x);
     vec2 d0 = uWind;
-    vec2 d1 = normalize(uWind * 0.55 + across * 0.84);
-    vec2 d2 = normalize(uWind * 0.68 - across * 0.73);
+    // uWind and across are an orthonormal basis, so each combination has the same length for every
+    // wind bearing. Normalising the coefficients once gives exactly the old directions without
+    // running two inverse square roots at every grid vertex.
+    vec2 d1 = uWind * 0.547786 + across * 0.836619;
+    vec2 d2 = uWind * 0.681604 - across * 0.731722;
 
     // Bend the whole wave field slowly across the arena. Without this low-frequency domain warp,
     // three clean sine trains still resolve into a recognisable repeating interference tile when
@@ -142,10 +145,10 @@ const FRAG = /* glsl */ `
 `;
 
 export function createSea() {
-  // At 160 by 90 a 1440p capture interpolates across roughly nine pixels rather than sixteen, which
-  // removes the visible triangular steps without approaching the reference demo's 263,169 vertices.
-  // This is 14,651 vertices, and the expensive reflection/texture fragment work is still absent.
-  const geometry = new THREE.PlaneGeometry(2, 2, 160, 90);
+  // The colour transitions are deliberately broad, so a 96 by 54 grid stays smooth at 1440p while
+  // evaluating the animated wave function at 5,335 vertices instead of 14,651. The reference demo
+  // uses 263,169 plus reflection and texture work; this keeps only the part visible from this camera.
+  const geometry = new THREE.PlaneGeometry(2, 2, 96, 54);
   const material = new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
