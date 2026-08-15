@@ -6,6 +6,7 @@
 #include "net/authority.h"
 #include "net/client.h"
 #include "net/transport.h"
+#include "presentation/battle_visual.h"
 #include "presentation/controller.h"
 #include "presentation/quality.h"
 #include "reference/reference.h"
@@ -424,7 +425,20 @@ int cmdRendercheck() {
     for (int i = 0; i < 900; ++i)
         quality.sample(.01f);
     require(quality.scale() > reduced, "adaptive renderer did not recover after sustained fast frames");
-    std::cout << "rendercheck: responsive bounds and adaptive scales [1,.85,.72,.60,.50] passed\n";
+    const auto design = game::archetypeDesign("mixed", 0, 34);
+    sim::Battle battle({design, design}, 0, 7123, .7);
+    presentation::BattleVisualState visual;
+    require(visual.update(battle, 1.0f / 60.0f), "first battle did not reset presentation state");
+    battle.state()[0].out = true;
+    for (int frame = 0; frame < 120; ++frame)
+        visual.update(battle, 1.0f / 60.0f);
+    require(battle.tickCount() == 0 && visual.sinkDepth(0) > 1.0f,
+            "sinking did not advance while the authoritative verdict was frozen");
+    require(visual.visible(1) && visual.sinkDepth(1) == 0.0f, "afloat ship inherited sinking state");
+    sim::Battle nextBattle({design, design}, 0, 7124, .7);
+    require(visual.update(nextBattle, 1.0f / 60.0f) && visual.sinkDepth(0) == 0.0f,
+            "new battle did not clear sinking state");
+    std::cout << "rendercheck: responsive bounds, adaptive scales, and frozen-verdict sinking passed\n";
     return 0;
 }
 

@@ -39,7 +39,7 @@ const char *partBlurb(sim::PartId id) {
     static constexpr const char *blurbs[]{
         "Filler. Shields spine.", "Armour. Soaks hits.",   "Adds 3 hands.",       "Speed and turning.",
         "Gunpowder. Explosive.",  "Light, all-round gun.", "3 medium side guns.", "2 close side guns.",
-        "Long piercing bow gun.", "Fixed heart of ship."};
+        "Piercing bow gun.",      "Fixed heart of ship."};
     return blurbs[static_cast<int>(id)];
 }
 void autoFitClient(net::GameClient &client) {
@@ -150,6 +150,7 @@ int main(int argc, char **argv) {
     std::uint32_t seed = 0xb0ad51deu;
     bool configured = false, botsOnly = false, loopMatches = false;
     std::string capturePath, scenario, baselinePath;
+    int captureWarmupFrames = 0;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         auto value = [&]() { return i + 1 < argc ? argv[++i] : ""; };
@@ -208,7 +209,8 @@ int main(int argc, char **argv) {
     if (!scenario.empty() && scenario != "menu") {
         if (scenario == "four-way")
             app.start(seed, 4, 3);
-        else if (scenario == "duel" || scenario == "result" || scenario == "match-end")
+        else if (scenario == "duel" || scenario == "sinking" || scenario == "result" ||
+                 scenario == "match-end")
             app.start(seed, 2, 1);
         else
             app.start(seed, 4, 1);
@@ -221,12 +223,24 @@ int main(int argc, char **argv) {
                 app.update(.001f);
             }
         };
-        if (scenario == "duel" || scenario == "four-way" || scenario == "result" || scenario == "match-end") {
+        if (scenario == "duel" || scenario == "sinking" || scenario == "four-way" || scenario == "result" ||
+            scenario == "match-end") {
             int guard = 0;
             while (app.model().phase == 1 && guard++ < 12)
                 lockActive();
             if ((scenario == "duel" || scenario == "four-way") && app.model().phase == 2)
                 app.update(6.0f);
+            if (scenario == "sinking") {
+                guard = 0;
+                auto shipIsOut = [&]() {
+                    const auto *battle = app.session().battle();
+                    return battle && std::any_of(battle->state().begin(), battle->state().end(),
+                                                 [](const auto &ship) { return ship.out; });
+                };
+                while (app.model().phase == 2 && !shipIsOut() && guard++ < 800)
+                    app.update(.05f);
+                captureWarmupFrames = 96;
+            }
             if (scenario == "result") {
                 while (app.model().phase == 2 && guard++ < 400)
                     app.update(.25f);
@@ -259,7 +273,9 @@ int main(int argc, char **argv) {
         if (IsKeyPressed(KEY_ESCAPE) && app.started())
             app = presentation::AppController{};
         float dt = GetFrameTime() * speed;
-        if (app.started())
+        const bool presentationOnlyWarmup =
+            !capturePath.empty() && scenario == "sinking" && captureWarmupFrames > 0;
+        if (app.started() && !presentationOnlyWarmup)
             app.update(dt);
         if (app.started() && loopMatches && app.session().humans() == 0) {
             if (app.model().phase == 4) {
@@ -332,7 +348,8 @@ int main(int argc, char **argv) {
             handoff = false;
         }
         if (app.started() && currentModel.phase == 2 && app.session().battle())
-            renderer.drawBattle(*app.session().battle(), width, height, GetFrameTime());
+            renderer.drawBattle(*app.session().battle(), width, height,
+                                capturePath.empty() ? GetFrameTime() : 1.0f / 60.0f);
         else
             renderer.drawSea(width, height, capturePath.empty() ? static_cast<float>(GetTime()) : 3.5f, .7);
         if (!app.started()) {
@@ -757,7 +774,7 @@ int main(int argc, char **argv) {
             }
         }
         bool captured = false;
-        if (!capturePath.empty()) {
+        if (!capturePath.empty() && captureWarmupFrames-- <= 0) {
             rlDrawRenderBatchActive();
             Image image = LoadImageFromScreen();
             std::filesystem::path output(capturePath);
@@ -784,10 +801,13 @@ int main(int argc, char **argv) {
             bool valid = mean > 5 && mean < 245 && variance > 80;
             if (scenario == "duel")
                 valid = valid && renderer.stats().ships == 2 && renderer.stats().particles > 0 &&
-                        renderer.stats().particleOverflow == 0;
+                        renderer.stats().flags == 2 && renderer.stats().particleOverflow == 0;
+            if (scenario == "sinking")
+                valid = valid && renderer.stats().ships == 2 && renderer.stats().sinkingShips == 1 &&
+                        renderer.stats().flags >= 1 && renderer.stats().particleOverflow == 0;
             if (scenario == "four-way")
                 valid = valid && renderer.stats().ships == 4 && renderer.stats().particles > 0 &&
-                        renderer.stats().particleOverflow == 0;
+                        renderer.stats().flags == 4 && renderer.stats().particleOverflow == 0;
             if (!baselinePath.empty()) {
                 std::ifstream baselines(baselinePath);
                 std::string name, hex;
@@ -806,6 +826,7 @@ int main(int argc, char **argv) {
                       << image.height << " mean=" << mean << " variance=" << variance << " ahash=" << std::hex
                       << hash << std::dec << " ships=" << renderer.stats().ships
                       << " parts=" << renderer.stats().parts << " effects=" << renderer.stats().particles
+                      << " flags=" << renderer.stats().flags << " sinking=" << renderer.stats().sinkingShips
                       << " overflow=" << renderer.stats().particleOverflow << (valid ? " PASS" : " FAIL")
                       << '\n';
             if (!valid)

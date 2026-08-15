@@ -77,12 +77,17 @@ add_library(broadside_core INTERFACE)
 target_link_libraries(broadside_core INTERFACE broadside_net broadside_audio broadside_reference)
 
 add_library(broadside_presentation
+  native/presentation/battle_visual.cpp
   native/presentation/controller.cpp
   native/presentation/quality.cpp
 )
 target_include_directories(broadside_presentation PUBLIC native)
 target_link_libraries(broadside_presentation PUBLIC broadside_net)
 target_compile_options(broadside_presentation PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Wpedantic>)
+if(BROADSIDE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(broadside_presentation PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(broadside_presentation PUBLIC -fsanitize=address,undefined)
+endif()
 
 foreach(target broadside_sim broadside_game broadside_net broadside_audio broadside_reference)
   target_compile_features(${target} PUBLIC cxx_std_20)

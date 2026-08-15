@@ -12,6 +12,7 @@ namespace broadside::render {
 namespace {
 
 constexpr Color SeaDeep{16, 41, 52, 255};
+constexpr Color SeaWater{23, 55, 66, 255};
 constexpr Color Foam{166, 205, 209, 220};
 constexpr std::array<Color, 4> PlayerColors{
     {{95, 168, 255, 255}, {255, 122, 95, 255}, {99, 209, 168, 255}, {201, 140, 240, 255}}};
@@ -192,11 +193,18 @@ DesktopRenderer::DesktopRenderer() {
     for (std::size_t i = 0; i < hullMaterials_.size(); ++i) {
         hullMaterials_[i] = LoadMaterialDefault();
         hullMaterials_[i].maps[MATERIAL_MAP_DIFFUSE].color = ColorBrightness(HullColors[i], -.24f);
+        deckMaterials_[i] = LoadMaterialDefault();
+        deckMaterials_[i].maps[MATERIAL_MAP_DIFFUSE].color = DeckColors[i];
+        spineMaterials_[i] = LoadMaterialDefault();
+        spineMaterials_[i].maps[MATERIAL_MAP_DIFFUSE].color = SpineColors[i];
     }
+    holeMaterial_ = LoadMaterialDefault();
+    holeMaterial_.maps[MATERIAL_MAP_DIFFUSE].color = {16, 24, 32, 255};
+    wreckMaterial_ = LoadMaterialDefault();
     const auto headingPath = assetPath("fonts/IMFeENsc28P.ttf").string();
     const auto bodyPath = assetPath("fonts/Inter-Variable.ttf").string();
-    heading_ = LoadFontEx(headingPath.c_str(), 72, nullptr, 0);
-    body_ = LoadFontEx(bodyPath.c_str(), 40, nullptr, 0);
+    heading_ = LoadFontEx(headingPath.c_str(), 96, nullptr, 0);
+    body_ = LoadFontEx(bodyPath.c_str(), 64, nullptr, 0);
     SetTextureFilter(heading_.texture, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(body_.texture, TEXTURE_FILTER_BILINEAR);
 }
@@ -219,6 +227,12 @@ void DesktopRenderer::unload() {
         UnloadMaterial(material);
     for (auto &material : hullMaterials_)
         UnloadMaterial(material);
+    for (auto &material : deckMaterials_)
+        UnloadMaterial(material);
+    for (auto &material : spineMaterials_)
+        UnloadMaterial(material);
+    UnloadMaterial(holeMaterial_);
+    UnloadMaterial(wreckMaterial_);
     UnloadMesh(cube_);
     if (seaShader_.id)
         UnloadShader(seaShader_);
@@ -228,9 +242,9 @@ void DesktopRenderer::unload() {
 
 void DesktopRenderer::ensureTarget(int width, int height) {
     const float scale = quality_.scale();
-    constexpr float FillBudget = 1920.0f * 1080.0f;
+    constexpr float FillBudget = 2880.0f * 1620.0f;
     const float pixels = static_cast<float>(std::max(1, width) * std::max(1, height));
-    const float supersample = pixels <= FillBudget ? std::min(1.50f, std::sqrt(FillBudget / pixels)) : 1.0f;
+    const float supersample = pixels <= FillBudget ? std::min(2.25f, std::sqrt(FillBudget / pixels)) : 1.0f;
     const int wantedWidth = std::max(1, static_cast<int>(std::round(width * scale * supersample)));
     const int wantedHeight = std::max(1, static_cast<int>(std::round(height * scale * supersample)));
     if (target_.id && wantedWidth == targetWidth_ && wantedHeight == targetHeight_)
@@ -264,6 +278,12 @@ void DesktopRenderer::drawSeaIntoTarget(float time, double windTo, Vector3 centr
 }
 
 void DesktopRenderer::drawSea(int screenWidth, int screenHeight, float time, double windTo) {
+    stats_.ships = 0;
+    stats_.parts = 0;
+    stats_.projectiles = 0;
+    stats_.particles = 0;
+    stats_.flags = 0;
+    stats_.sinkingShips = 0;
     ensureTarget(screenWidth, screenHeight);
     BeginTextureMode(target_);
     ClearBackground(SeaDeep);
@@ -290,6 +310,14 @@ void DesktopRenderer::resetEffects() {
     effectSeed_ = 0;
     nextParticle_ = 0;
     stats_.particleOverflow = 0;
+    shake_ = 0.0f;
+}
+
+void DesktopRenderer::updateBattlePresentation(const sim::Battle &battle, float seconds) {
+    if (battleVisual_.update(battle, seconds)) {
+        resetEffects();
+        cameraInitialized_ = false;
+    }
 }
 
 void DesktopRenderer::spawn(const sim::Effect &effect, int count, Color color, float speed, float life,
@@ -478,16 +506,29 @@ void DesktopRenderer::drawShips(const sim::Battle &battle) {
     partInstanceCounts_.fill(0);
     stats_.ships = static_cast<int>(battle.state().size());
     stats_.parts = 0;
+    stats_.flags = 0;
+    stats_.sinkingShips = 0;
     for (const auto &ship : battle.state()) {
-        const float sink =
-            ship.out ? std::min(2.2f, static_cast<float>((battle.time() - ship.outAt) * .35)) : 0.0f;
+        if (!battleVisual_.visible(ship.index))
+            continue;
+        const float sinkUnit = battleVisual_.sinkAmount(ship.index);
+        const float sink = battleVisual_.sinkDepth(ship.index);
+        const bool sinking = sinkUnit > 0.0f;
+        stats_.sinkingShips += sinking;
         const float heading = static_cast<float>(ship.heading);
         const auto &hull = sim::hull(ship.hullIndex);
         const auto seat = static_cast<std::size_t>(ship.index % 4);
         drawEllipse({static_cast<float>(ship.position.x), .05f, static_cast<float>(ship.position.z)},
                     (hull.width / 2.0f + .62f) * static_cast<float>(sim::CellSize),
                     (hull.length / 2.0f + .78f) * static_cast<float>(sim::CellSize), heading,
-                    ColorAlpha(PlayerColors[seat], .20f));
+                    ColorAlpha(PlayerColors[seat], .20f * (1.0f - sinkUnit)));
+        if (sinking) {
+            const float pulse = .5f + .5f * std::sin(battleVisual_.sinkProgress(ship.index) * 32.0f);
+            drawEllipse({static_cast<float>(ship.position.x), .08f, static_cast<float>(ship.position.z)},
+                        (hull.width / 2.0f + .75f + sinkUnit * .5f) * static_cast<float>(sim::CellSize),
+                        (hull.length / 2.0f + .90f + sinkUnit * .7f) * static_cast<float>(sim::CellSize),
+                        heading, ColorAlpha(Foam, (.38f + pulse * .18f) * (1.0f - sinkUnit)));
+        }
 
         for (const auto &coord : hull.cells) {
             const auto found = std::find_if(ship.cells.begin(), ship.cells.end(),
@@ -498,13 +539,19 @@ void DesktopRenderer::drawShips(const sim::Battle &battle) {
             // destroyed. Per-cell plates preserve the construction grid instead of merging each
             // row into an ambiguous rectangular bar.
             const Vector3 body = worldCell(ship, coord, .18f - sink);
-            DrawMesh(cube_, hullMaterials_[seat],
+            if (sinking)
+                wreckMaterial_.maps[MATERIAL_MAP_DIFFUSE].color =
+                    ColorLerp(ColorBrightness(HullColors[seat], -.24f), SeaWater, sinkUnit * .92f);
+            DrawMesh(cube_, sinking ? wreckMaterial_ : hullMaterials_[seat],
                      transform(body.x, body.y, body.z, 2.28f, .36f, 2.28f, -heading));
             const Vector3 deck = worldCell(ship, coord, alive ? .42f - sink : .23f - sink);
-            const Color base = coord.dx == 0 ? SpineColors[seat] : DeckColors[seat];
-            const Color color = alive ? base : Color{16, 24, 32, 255};
-            DrawCubeV(deck, {2.12f, alive ? .28f : .12f, 2.12f}, color);
-            DrawCubeWiresV(deck, {2.12f, alive ? .28f : .12f, 2.12f}, ColorAlpha({8, 13, 17, 255}, .82f));
+            const Material &deckMaterial =
+                alive ? (coord.dx == 0 ? spineMaterials_[seat] : deckMaterials_[seat]) : holeMaterial_;
+            if (sinking)
+                wreckMaterial_.maps[MATERIAL_MAP_DIFFUSE].color =
+                    ColorLerp(deckMaterial.maps[MATERIAL_MAP_DIFFUSE].color, SeaWater, sinkUnit * .92f);
+            DrawMesh(cube_, sinking ? wreckMaterial_ : deckMaterial,
+                     transform(deck.x, deck.y, deck.z, 2.12f, alive ? .28f : .12f, 2.12f, -heading));
         }
 
         const float bowFore = (hull.bowZ - .78f) * static_cast<float>(sim::CellSize);
@@ -513,12 +560,14 @@ void DesktopRenderer::drawShips(const sim::Battle &battle) {
             static_cast<float>(ship.position.z) + static_cast<float>(ship.cosHeading) * bowFore};
         const Vector3 side{static_cast<float>(ship.cosHeading), 0, static_cast<float>(ship.sinHeading)};
         const Vector3 forward{static_cast<float>(ship.sinHeading), 0, -static_cast<float>(ship.cosHeading)};
+        const Color wreckHull = ColorLerp(HullColors[seat], SeaWater, sinkUnit * .92f);
         DrawTriangle3D(Vector3Add(bowBase, Vector3Scale(side, -1.15f)),
                        Vector3Add(bowBase, Vector3Scale(forward, 2.45f)),
-                       Vector3Add(bowBase, Vector3Scale(side, 1.15f)), HullColors[seat]);
+                       Vector3Add(bowBase, Vector3Scale(side, 1.15f)), wreckHull);
         const Vector3 bowspritBase = Vector3Add(bowBase, Vector3{0, .15f, 0});
-        DrawCylinderEx(bowspritBase, Vector3Add(bowspritBase, Vector3Scale(forward, 3.15f)), .075f, .035f, 7,
-                       {224, 211, 178, 255});
+        if (sinkUnit < .80f)
+            DrawCylinderEx(bowspritBase, Vector3Add(bowspritBase, Vector3Scale(forward, 3.15f)), .075f, .035f,
+                           7, ColorLerp(Color{224, 211, 178, 255}, SeaWater, sinkUnit));
 
         for (const auto &cell : ship.cells) {
             if (!cell.alive)
@@ -529,12 +578,18 @@ void DesktopRenderer::drawShips(const sim::Battle &battle) {
             auto &count = partInstanceCounts_[type];
             const float height =
                 std::array<float, 10>{.20f, .28f, .26f, .30f, .28f, .32f, .34f, .30f, .36f, .30f}[type];
-            if (count < static_cast<int>(partInstances_[type].size()))
-                partInstances_[type][static_cast<std::size_t>(count++)] =
-                    transform(point.x, point.y + height * damage * .5f, point.z, 1.72f, height * damage,
-                              1.72f, -heading);
+            const Matrix partTransform = transform(point.x, point.y + height * damage * .5f, point.z, 1.72f,
+                                                   height * damage, 1.72f, -heading);
+            if (sinking) {
+                wreckMaterial_.maps[MATERIAL_MAP_DIFFUSE].color =
+                    ColorLerp(ColorBrightness(PartColors[type], .10f), SeaWater, sinkUnit * .92f);
+                DrawMesh(cube_, wreckMaterial_, partTransform);
+            } else if (count < static_cast<int>(partInstances_[type].size())) {
+                partInstances_[type][static_cast<std::size_t>(count++)] = partTransform;
+            }
             ++stats_.parts;
-            drawPartDetail(ship, cell, point, heading, sink, damage);
+            if (sinkUnit < .35f)
+                drawPartDetail(ship, cell, point, heading, sink, damage);
         }
 
         const float sternFore = (hull.cells.back().dz + .68f) * static_cast<float>(sim::CellSize);
@@ -543,9 +598,17 @@ void DesktopRenderer::drawShips(const sim::Battle &battle) {
                      static_cast<float>(ship.position.z) + static_cast<float>(ship.cosHeading) * sternFore};
         Vector3 poleTop = pole;
         poleTop.y += 4.2f;
-        DrawCylinderEx(pole, poleTop, .09f, .09f, 7, {202, 191, 166, 255});
-        DrawTriangle3D(poleTop, Vector3Add(Vector3Add(poleTop, Vector3Scale(side, 2.0f)), {0, -.55f, 0}),
-                       Vector3Add(poleTop, {0, -1.1f, 0}), PlayerColors[seat]);
+        if (sinkUnit < .80f)
+            DrawCylinderEx(pole, poleTop, .09f, .09f, 7,
+                           ColorLerp(Color{202, 191, 166, 255}, SeaWater, sinkUnit));
+        const Vector3 flagTip = Vector3Add(Vector3Add(poleTop, Vector3Scale(side, 2.0f)), {0, -.55f, 0});
+        const Vector3 flagFoot = Vector3Add(poleTop, {0, -1.1f, 0});
+        if (sinkUnit < .65f) {
+            const Color flagColor = ColorLerp(PlayerColors[seat], SeaWater, sinkUnit);
+            DrawTriangle3D(poleTop, flagTip, flagFoot, flagColor);
+            DrawTriangle3D(flagFoot, flagTip, poleTop, flagColor);
+            ++stats_.flags;
+        }
     }
     for (std::size_t type = 0; type < partInstances_.size(); ++type)
         if (partInstanceCounts_[type] > 0)
@@ -574,6 +637,7 @@ void DesktopRenderer::drawParticles(const Camera3D &camera) const {
 void DesktopRenderer::drawBattle(const sim::Battle &battle, int screenWidth, int screenHeight,
                                  float frameSeconds) {
     quality_.sample(frameSeconds);
+    updateBattlePresentation(battle, frameSeconds);
     ensureTarget(screenWidth, screenHeight);
     stats_.renderScale = targetWidth_ / static_cast<float>(std::max(1, screenWidth));
     consumeEffects(battle);
@@ -585,7 +649,7 @@ void DesktopRenderer::drawBattle(const sim::Battle &battle, int screenWidth, int
     std::array<const sim::RuntimeShip *, sim::MaxPlayers> framed{};
     std::size_t framedCount = 0;
     for (const auto &ship : battle.state()) {
-        if (ship.out && battle.time() - ship.outAt > 2.2)
+        if (ship.out && !battleVisual_.visible(ship.index))
             continue;
         framed[framedCount++] = &ship;
         if (ship.out)
@@ -597,6 +661,15 @@ void DesktopRenderer::drawBattle(const sim::Battle &battle, int screenWidth, int
     if (active) {
         desired.x /= active;
         desired.z /= active;
+    } else if (framedCount) {
+        for (std::size_t i = 0; i < framedCount; ++i) {
+            desired.x += static_cast<float>(framed[i]->position.x);
+            desired.z += static_cast<float>(framed[i]->position.z);
+        }
+        desired.x /= static_cast<float>(framedCount);
+        desired.z /= static_cast<float>(framedCount);
+    } else {
+        desired = cameraTarget_;
     }
     float spread = 0.0f;
     for (std::size_t i = 0; i < framedCount; ++i)
@@ -606,8 +679,8 @@ void DesktopRenderer::drawBattle(const sim::Battle &battle, int screenWidth, int
                                                       {static_cast<float>(framed[j]->position.x),
                                                        static_cast<float>(framed[j]->position.z)}));
     extent = std::clamp(spread * .62f + 13.0f, 24.0f, 78.0f) * 2.0f;
-    if (cameraSeed_ != battle.seed()) {
-        cameraSeed_ = battle.seed();
+    if (!cameraInitialized_) {
+        cameraInitialized_ = true;
         cameraTarget_ = desired;
         cameraSpan_ = extent;
     } else {

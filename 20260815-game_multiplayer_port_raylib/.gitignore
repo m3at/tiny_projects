@@ -1,3 +1,4 @@
 # Native build output and local dependency populations
 build/
 .DS_Store
+native/reference

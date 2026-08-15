@@ -66,7 +66,7 @@ capture: build  ## Capture all six acceptance scenes at both reference resolutio
 	@mkdir -p $${CAPTURE_DIR:-build/captures}
 	@if [ "$${VERIFY_BASELINES:-1}" = "1" ]; then baseline="--baseline-file native/reference/render_baselines.txt"; else baseline=""; fi; \
 	for size in "1280 720" "960 540"; do set -- $$size; \
-	  for scene in menu shipyard duel four-way result match-end; do \
+	  for scene in menu shipyard duel sinking four-way result match-end; do \
 	    $(BUILD)/bin/broadside --seed 0xb0ad51de --scenario $$scene --width $$1 --height $$2 $$baseline \
 	      --capture $${CAPTURE_DIR:-build/captures}/$$scene-$$1x$$2.png || exit $$?; \
 	  done; \

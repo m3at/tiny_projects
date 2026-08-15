@@ -1,5 +1,6 @@
 #pragma once
 
+#include "presentation/battle_visual.h"
 #include "presentation/quality.h"
 #include "raylib.h"
 #include "sim/battle.h"
@@ -16,6 +17,8 @@ struct RenderStats {
     int projectiles = 0;
     int particles = 0;
     int particleOverflow = 0;
+    int flags = 0;
+    int sinkingShips = 0;
     float renderScale = 1.0f;
 };
 
@@ -60,6 +63,7 @@ class DesktopRenderer {
     void consumeEffects(const sim::Battle &battle);
     void spawn(const sim::Effect &effect, int count, Color color, float speed, float life, float size);
     void updateParticles(float seconds, double windTo);
+    void updateBattlePresentation(const sim::Battle &battle, float seconds);
     void drawShips(const sim::Battle &battle);
     void drawParticles(const Camera3D &camera) const;
     void drawSeaIntoTarget(float time, double windTo, Vector3 centre, float viewHeight, float arenaRadius);
@@ -73,6 +77,10 @@ class DesktopRenderer {
     Mesh cube_{};
     std::array<Material, 10> partMaterials_{};
     std::array<Material, 4> hullMaterials_{};
+    std::array<Material, 4> deckMaterials_{};
+    std::array<Material, 4> spineMaterials_{};
+    Material holeMaterial_{};
+    Material wreckMaterial_{};
     Font heading_{};
     Font body_{};
     std::array<Particle, 720> particles_{};
@@ -81,7 +89,7 @@ class DesktopRenderer {
     std::size_t nextParticle_ = 0;
     std::size_t effectCursor_ = 0;
     std::uint32_t effectSeed_ = 0;
-    std::uint32_t cameraSeed_ = 0;
+    bool cameraInitialized_ = false;
     Vector3 cameraTarget_{};
     float cameraSpan_ = 80.0f;
     float shake_ = 0.0f;
@@ -94,6 +102,7 @@ class DesktopRenderer {
     int pixelLocation_ = -1;
     int ringLocation_ = -1;
     int inverseResolutionLocation_ = -1;
+    presentation::BattleVisualState battleVisual_;
     presentation::AdaptiveQuality quality_;
     RenderStats stats_{};
     bool loaded_ = true;

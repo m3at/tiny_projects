@@ -16,7 +16,7 @@ bool useDisplayFace(float size, bool display) {
 
 float textPixels(float size, float scale) {
     const float optical = size < 40 ? 1.2f : 1.0f;
-    return std::max(12.5f, size * optical * scale);
+    return std::max(14.0f, size * optical * scale);
 }
 
 } // namespace

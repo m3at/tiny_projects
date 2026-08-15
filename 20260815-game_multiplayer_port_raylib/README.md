@@ -5,8 +5,8 @@ shared sequence of larger hulls, then choose round or grape shot while the ships
 Damage persists between rounds. The first captain to three wins; round five ends the match even if
 there is no unique leader.
 
-The game runs entirely in native C++20 and raylib. JavaScript is retained only as an external
-behavioral and visual reference; it is not part of the runtime.
+The game runs entirely in native C++20 and raylib, including simulation, authority, rendering, and
+procedural audio.
 
 ## Build and play
 
@@ -94,14 +94,14 @@ Useful entry points:
 | `make soak` | Repeat complete bots-only matches for visual/performance testing. |
 | `make quick` | Build headless and run the small `quick`-labelled tests. |
 | `make test` | Build the configured desktop tree and run every CTest suite. |
-| `make reference` | Generate and compare all 900 reference battles. |
+| `make reference` | Generate and compare all 900 locked semantic battles. |
 | `make netcheck` | Run complete matches over immediate and virtual transports, including repair and reconnect. |
 | `make audio-check` | Render isolated cues and dense mixes and enforce the audio envelope. |
 | `make playthrough` | Cover a two-human match and an unattended four-bot match. |
 | `make melee` | Measure three- and four-ship decisiveness and seat fairness. |
 | `make ablate` | Compare canonical targeting with diagnostic rule variants. |
 | `make rendercheck` | Check responsive hitbox bounds and adaptive-quality transitions. |
-| `make capture` | Capture six deterministic scenes at 1280×720 and 960×540. |
+| `make capture` | Capture seven deterministic scenes at 1280×720 and 960×540. |
 | `make sanitizer` | Run the headless suite under ASan and UBSan. |
 | `make format-check` | Verify native C++ formatting. |
 
@@ -113,6 +113,7 @@ The desktop fixture scenarios are:
 - `menu`: unopened local menu.
 - `shipyard`: the first active shipyard turn.
 - `duel`: a staged two-ship battle, advanced six seconds.
+- `sinking`: a frozen-verdict duel after 1.6 seconds of presentation-only sinking.
 - `four-way`: a staged four-ship battle, advanced six seconds.
 - `result`: the first completed round result.
 - `match-end`: a precomputed match-complete result.
@@ -144,24 +145,26 @@ make capture-one SCENARIO=duel CAPTURE=build/duel.png ARGS="--width 1280 --heigh
 The desktop sends actions through `GameClient` and the transport boundary. It does not call
 `RoomAuthority` or mutate an authoritative battle directly.
 
-## Reference and presentation
+## Determinism and presentation
 
-`native/reference/js_golden.txt` contains 900 semantic reference battles. `broadside_tool reference`
+`native/reference/js_golden.txt` contains 900 locked semantic battles. `broadside_tool reference`
 rebuilds every native archetype and requires every winner to match, finish time within one tick, and
 each final structure fraction within 0.001. Native repeatability uses the strict checksum fixture in
 `native/reference/native_golden.txt`.
 
-The native presentation keeps the reference's illustrated chart-table direction while taking
-advantage of the desktop renderer. Ships use a stable tapered under-deck, inset deck plates, an
-unambiguous velocity-side prow and bowsprit, aft flags, damage holes, and low-relief role-specific
-part marks. The sea is a world-mapped directional wave field with etched lines, foam, an arena
-boundary, up to 1.5× supersampling, adaptive resolution, multisampled geometry, and FXAA.
+The presentation uses an illustrated naval-chart visual grammar. One ship-local transform aligns the
+stable tapered under-deck, inset deck plates, low-relief role-specific parts, velocity-side prow and
+bowsprit, and double-sided aft flag. Wrecks keep sinking while the authoritative verdict is frozen,
+descending and tinting into surface foam. The sea is a world-mapped directional wave field with
+etched lines, foam, an arena boundary, up to 2.25× supersampling, adaptive resolution, multisampled
+geometry, and FXAA.
 
 UI is rendered at native resolution over the scaled world. Small text uses filtered Inter with a
-12.5-pixel raster floor; the decorative face is reserved for headings large enough to remain legible.
+14-pixel raster floor backed by a 64-pixel atlas; the decorative face is reserved for headings large
+enough to remain legible.
 One chart-like visual grammar covers the menu, private captain handoff, shipyard, battle status, and
 results. Checksums, render scale, and pool counters stay behind F3 instead of competing with play
-state. Implementation and review gates are in [PRESENTATION_PLAN.md](PRESENTATION_PLAN.md).
+state.
 
 ## Networking status
 
