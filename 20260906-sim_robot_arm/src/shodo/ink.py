@@ -1,0 +1,112 @@
+"""Conservative water/pigment transport on a fibrous paper grid.
+
+Water is in microliters, pigment in micrograms; fields store per-cell quantities.
+No-flux boundaries conserve pigment. Water evaporates; mobile pigment adsorbs into
+an immobile field. All coefficients are explicit, procedural material assumptions.
+"""
+
+import numpy as np
+from PIL import Image
+
+from shodo.config import InkConfig
+
+
+class Paper:
+    def __init__(self, config=None, center_x=0.5, seed=0):
+        config = config or InkConfig()
+        self.config = config
+        self.center_x = center_x
+        n = config.resolution
+        self.dx = config.extent / n
+        self.area_mm2 = (self.dx * 1000) ** 2
+        self.water = np.zeros((n, n))
+        self.mobile = np.zeros((n, n))
+        self.fixed = np.zeros((n, n))
+        rng = np.random.default_rng(seed)
+        self.fibers = rng.uniform(0.75, 1.25, (n, n))
+        self.deposited_pigment = 0.0
+        self.deposited_water = 0.0
+        self.elapsed = 0.0
+        self.bounds = None
+
+    def deposit(self, positions, weights, water, pigment):
+        if not len(positions) or weights.sum() <= 0:
+            return
+        n = self.config.resolution
+        # Use cell centers for bilinear splats. Reject off-paper contacts, never clamp.
+        uv = (
+            positions[:, :2] - [self.center_x - self.config.extent / 2, -self.config.extent / 2]
+        ) / self.dx - 0.5
+        inside = (uv[:, 0] >= 0) & (uv[:, 0] < n - 1) & (uv[:, 1] >= 0) & (uv[:, 1] < n - 1)
+        weights = weights / weights.sum()
+        uv, weights = uv[inside], weights[inside]
+        if not len(uv):
+            return
+        base = np.floor(uv).astype(int)
+        fraction = uv - base
+        for ox, oy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            w = (
+                weights
+                * (fraction[:, 0] if ox else 1 - fraction[:, 0])
+                * (fraction[:, 1] if oy else 1 - fraction[:, 1])
+            )
+            index = (base[:, 1] + oy, base[:, 0] + ox)
+            np.add.at(self.water, index, water * w)
+            np.add.at(self.mobile, index, pigment * w)
+        self.deposited_water += water * weights.sum()
+        self.deposited_pigment += pigment * weights.sum()
+        box = np.array(
+            [base[:, 1].min(), base[:, 0].min(), base[:, 1].max() + 2, base[:, 0].max() + 2]
+        )
+        if self.bounds is None:
+            self.bounds = box
+        else:
+            self.bounds[:2] = np.minimum(self.bounds[:2], box[:2])
+            self.bounds[2:] = np.maximum(self.bounds[2:], box[2:])
+
+    @staticmethod
+    def _diffuse(field, diffusivity, dt_dx2):
+        # Pairwise symmetric flux, so sum(field) is unchanged (including boundaries).
+        horizontal = (
+            0.5
+            * (diffusivity[:, 1:] + diffusivity[:, :-1])
+            * (field[:, 1:] - field[:, :-1])
+            * dt_dx2
+        )
+        vertical = 0.5 * (diffusivity[1:] + diffusivity[:-1]) * (field[1:] - field[:-1]) * dt_dx2
+        field[:, :-1] += horizontal
+        field[:, 1:] -= horizontal
+        field[:-1] += vertical
+        field[1:] -= vertical
+
+    def advance(self, dt):
+        self.elapsed += dt
+        if self.bounds is None:
+            return
+        cfg = self.config
+        # CFL positivity bound covers the largest heterogeneous diffusion coefficient.
+        substeps = max(1, int(np.ceil(dt * cfg.water_diffusion * 1.25 / (0.24 * self.dx**2))))
+        h = dt / substeps
+        self.bounds[:2] = np.maximum(0, self.bounds[:2] - substeps)
+        self.bounds[2:] = np.minimum(cfg.resolution, self.bounds[2:] + substeps)
+        y0, x0, y1, x1 = self.bounds
+        water = self.water[y0:y1, x0:x1]
+        mobile = self.mobile[y0:y1, x0:x1]
+        fixed = self.fixed[y0:y1, x0:x1]
+        fibers = self.fibers[y0:y1, x0:x1]
+        for _ in range(substeps):
+            self._diffuse(water, cfg.water_diffusion * fibers, h / self.dx**2)
+            wetness = np.clip(water / (0.003 * self.area_mm2), 0.0, 1.0)
+            self._diffuse(mobile, cfg.pigment_diffusion * fibers * wetness, h / self.dx**2)
+            adsorbed = mobile * (1 - np.exp(-cfg.adsorption * fibers * h))
+            mobile -= adsorbed
+            fixed += adsorbed
+            water *= np.exp(-cfg.evaporation * h)
+
+    def image(self):
+        density = (self.mobile + self.fixed) / self.area_mm2
+        transmission = np.exp(-self.config.optical_absorption * density)
+        texture = 1 + 0.02 * (self.fibers - 1)
+        rgb = np.array([250, 248, 239])[None, None, :] * texture[..., None]
+        rgb = 15 + (rgb - 15) * transmission[..., None]
+        return Image.fromarray(np.flipud(np.clip(rgb, 0, 255).astype(np.uint8)))
