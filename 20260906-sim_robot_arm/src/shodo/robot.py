@@ -10,7 +10,10 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+from filelock import FileLock
 from scipy.spatial.transform import Rotation
+
+from shodo.config import BrushConfig
 
 REVISION = "8161bba264d7fa7c99ca301e91e7fb44737676ad"
 ROOT = Path("data/robot/panda")
@@ -21,17 +24,29 @@ HOME = np.array([0, -0.45, 0, -2.2, 0, 1.8, -2.3562])
 
 def fetch_robot():
     ROOT.mkdir(parents=True, exist_ok=True)
-    lock = ROOT / "provenance.json"
-    previous = json.loads(lock.read_text()).get("sha256", {}) if lock.exists() else {}
+    with FileLock(ROOT / ".fetch.lock", timeout=120):
+        return _fetch_robot()
+
+
+def _fetch_robot():
+    receipt = ROOT / "provenance.json"
+    manifest = json.loads((Path(__file__).parent / "assets/panda_manifest.json").read_text())
+    if manifest["revision"] != REVISION:
+        raise ValueError("Panda manifest revision does not match the pinned source")
+    expected = manifest["sha256"]
 
     def download(name):
         path = ROOT / name
-        if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == previous.get(name):
-            return name, previous[name]
+        if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]:
+            return name, expected[name]
         with urllib.request.urlopen(f"{BASE}/{name}", timeout=60) as response:
             content = response.read()
+        if hashlib.sha256(content).hexdigest() != expected[name]:
+            raise ValueError(f"Panda checksum mismatch: {name}")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
+        temporary = path.with_name(path.name + ".pending")
+        temporary.write_bytes(content)
+        temporary.replace(path)
         return name, hashlib.sha256(content).hexdigest()
 
     hashes = dict(download(name) for name in ("panda_nohand.xml", "LICENSE", "README.md"))
@@ -39,7 +54,7 @@ def fetch_robot():
     names = {"assets/" + node.attrib["file"] for node in tree.iter("mesh") if "file" in node.attrib}
     with ThreadPoolExecutor(max_workers=8) as pool:
         hashes.update(pool.map(download, sorted(names)))
-    lock.write_text(
+    receipt.write_text(
         json.dumps(
             {"revision": REVISION, "url": BASE, "license": "Apache-2.0", "sha256": hashes}, indent=2
         )
@@ -49,7 +64,7 @@ def fetch_robot():
 
 
 @lru_cache(maxsize=4)
-def model_xml(timestep):
+def model_xml(timestep, brush_config):
     if not (ROOT / "panda_nohand.xml").exists():
         raise FileNotFoundError("Panda model missing; run make data")
     tree = ET.parse(ROOT / "panda_nohand.xml")
@@ -72,10 +87,16 @@ def model_xml(timestep):
         size="0.006",
         mass="0.04",
         rgba="0.52 0.28 0.09 1",
-        contype="1",
+        # Handle=4, rods=2, scene/arm=1. The clamp defines rod attachment;
+        # unresolved embedded root geometry must not add segment-dependent contacts.
+        contype="4",
         conaffinity="1",
     )
     ET.SubElement(tool, "site", name="tip", pos="0 0 0.16", size="0.001")
+    if brush_config.backend == "cable":
+        from shodo.cable import add_cables
+
+        add_cables(root, tool, brush_config)
     world = root.find("worldbody")
     ET.SubElement(
         world,
@@ -114,14 +135,17 @@ def model_xml(timestep):
 
 
 class Panda:
-    def __init__(self, timestep=0.002):
-        self.model = mujoco.MjModel.from_xml_string(model_xml(timestep))
+    def __init__(self, timestep=0.002, brush_config=None):
+        self.model = mujoco.MjModel.from_xml_string(
+            model_xml(timestep, brush_config or BrushConfig())
+        )
         self.data = mujoco.MjData(self.model)
         self.scratch = mujoco.MjData(self.model)
         self.site = self.model.site("tip").id
         self.body = self.model.body("brush").id
-        self.jac = np.zeros((6, 7))
-        self.mass = np.zeros((7, 7))
+        self.jac = np.zeros((6, self.model.nv))
+        self.acceleration = np.zeros(self.model.nv)
+        self.inertial_force = np.zeros(self.model.nv)
         self.q_target = HOME.copy()
 
     @property
@@ -134,10 +158,12 @@ class Panda:
 
     def inverse(self, position, rotvec, iterations=5):
         data = self.scratch
-        data.qpos[:] = self.q_target
+        data.qpos[:7] = self.q_target
         rotation = Rotation.from_rotvec(rotvec).as_matrix() @ DOWN
         for _ in range(iterations):
-            mujoco.mj_forward(self.model, data)
+            # IK needs only site transforms and motion axes, not contacts or dynamics.
+            mujoco.mj_kinematics(self.model, data)
+            mujoco.mj_comPos(self.model, data)
             error = np.r_[
                 position - data.site_xpos[self.site],
                 Rotation.from_matrix(
@@ -147,19 +173,20 @@ class Panda:
             if np.linalg.norm(error) < 1e-6:
                 break
             mujoco.mj_jacSite(self.model, data, self.jac[:3], self.jac[3:], self.site)
-            delta = self.jac.T @ np.linalg.solve(self.jac @ self.jac.T + 1e-5 * np.eye(6), error)
-            data.qpos[:] = np.clip(
-                data.qpos + np.clip(delta, -0.15, 0.15),
-                self.model.jnt_range[:, 0] + 0.01,
-                self.model.jnt_range[:, 1] - 0.01,
+            jac = self.jac[:, :7]
+            delta = jac.T @ np.linalg.solve(jac @ jac.T + 1e-5 * np.eye(6), error)
+            data.qpos[:7] = np.clip(
+                data.qpos[:7] + np.clip(delta, -0.15, 0.15),
+                self.model.jnt_range[:7, 0] + 0.01,
+                self.model.jnt_range[:7, 1] - 0.01,
             )
-        return data.qpos.copy()
+        return data.qpos[:7].copy()
 
     def reset(self, position, rotvec):
         mujoco.mj_resetData(self.model, self.data)
         self.q_target = HOME.copy()
         self.q_target = self.inverse(position, rotvec, iterations=150)
-        self.data.qpos[:] = self.q_target
+        self.data.qpos[:7] = self.q_target
         mujoco.mj_forward(self.model, self.data)
         if np.linalg.norm(self.tip - position) > 0.001:
             raise ValueError(f"Panda reset IK failed: {self.tip - position}")
@@ -170,10 +197,10 @@ class Panda:
         mujoco.mj_applyFT(
             self.model, self.data, force, torque, self.tip, self.body, self.data.qfrc_applied
         )
-        mujoco.mj_fullM(self.model, self.data, self.mass)
-        acceleration = 900 * (self.q_target - self.data.qpos) - 60 * self.data.qvel
+        self.acceleration[:7] = 900 * (self.q_target - self.data.qpos[:7]) - 60 * self.data.qvel[:7]
+        mujoco.mj_mulM(self.model, self.data, self.inertial_force, self.acceleration)
         self.data.ctrl[:] = np.clip(
-            self.mass @ acceleration + self.data.qfrc_bias,
+            self.inertial_force[:7] + self.data.qfrc_bias[:7],
             self.model.actuator_ctrlrange[:, 0],
             self.model.actuator_ctrlrange[:, 1],
         )

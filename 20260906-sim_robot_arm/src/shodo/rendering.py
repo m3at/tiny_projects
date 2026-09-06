@@ -12,7 +12,7 @@ class Renderer:
         self.gl.make_current()
         self.context = mujoco.MjrContext(model, mujoco.mjtFontScale.mjFONTSCALE_100)
         mujoco.mjr_setBuffer(mujoco.mjtFramebuffer.mjFB_OFFSCREEN, self.context)
-        self.scene = mujoco.MjvScene(model, maxgeom=2000)
+        self.scene = mujoco.MjvScene(model, maxgeom=max(2000, model.ngeom + 64))
         self.options = mujoco.MjvOption()
         self.options.geomgroup[3] = 0
         self.camera = mujoco.MjvCamera()
@@ -40,7 +40,9 @@ class Renderer:
             mujoco.mjtCatBit.mjCAT_ALL,
             self.scene,
         )
-        for root, contact in zip(env.brush.roots, env.brush.contact, strict=True):
+        roots = [] if env.brush.native else env.brush.roots
+        contacts = [] if env.brush.native else env.brush.contact
+        for root, contact in zip(roots, contacts, strict=True):
             geom = self.scene.geoms[self.scene.ngeom]
             mujoco.mjv_initGeom(
                 geom,

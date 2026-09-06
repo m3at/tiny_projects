@@ -1,0 +1,198 @@
+# Brush, ink, and control models
+
+This laboratory now has a seven-joint Panda, a fast reduced brush, and a native
+elastic-rod reference backend. These are increasingly detailed **simulation models**;
+none is calibrated to a particular physical shodo brush, ink, paper, or robot setup.
+
+## Arm mechanics
+
+The arm comes from the [MuJoCo Menagerie Panda without hand](https://github.com/google-deepmind/mujoco_menagerie/blob/8161bba264d7fa7c99ca301e91e7fb44737676ad/franka_emika_panda/panda_nohand.xml),
+pinned to commit `8161bba264d7fa7c99ca301e91e7fb44737676ad`. The model-specific
+[Apache-2.0 license](https://github.com/google-deepmind/mujoco_menagerie/blob/8161bba264d7fa7c99ca301e91e7fb44737676ad/franka_emika_panda/LICENSE)
+and README are retained beside downloaded assets. A checked-in SHA-256 manifest
+verifies every model and mesh file. Upstream inertias, joint limits and collision
+geometry remain. Runtime modifications attach a 40 g brush handle, add a paper/table
+scene, and replace position actuators with torque motors using upstream torque limits.
+
+The controller solves a damped six-dimensional inverse-kinematics problem for the
+desired brush pose. Joint inverse-dynamics control applies
+`tau = M(q) [900 (q_des - q) - 60 qdot] + bias(q, qdot)`, with motor torque clipping.
+The first seven degrees of freedom are actuated; native brush joints remain passive.
+`mj_mulM` performs a sparse mass-matrix product, avoiding expansion of the complete
+matrix when the brush adds many degrees of freedom. Real brush forces disturb the
+arm through `mj_applyFT` in the reduced backend or through native rod contacts.
+IK runs only `mj_kinematics` and `mj_comPos`, the
+[documented prerequisites for Jacobians](https://mujoco.readthedocs.io/en/stable/APIreference/APIfunctions.html#mj-jac).
+Tests compare its site positions and Jacobians exactly against full forward dynamics.
+
+## Reduced bristle bundles
+
+The fast backend represents 7, 19 or 37 bundles in concentric hexagonal rings.
+Peripheral hairs are shorter. Compression increases their spread and brings more
+bundles into contact. Each bundle has a persistent tangential contact anchor.
+
+For positive penetration `delta`, unilateral normal force is
+`max(0, k_n delta + c_n delta_dot)`. The total configured stiffness and damping are
+distributed across bundles, so changing their count does not multiply total load.
+A tangential spring generates a trial force. Projection onto the Coulomb disk
+`|F_t| <= mu F_n` holds the anchor during sticking and updates it during sliding.
+Lifting removes contact forces. Summed forces and moments act on the Panda at the
+nominal tool tip. This model is massless and quasistatic in bending; it captures
+compression, splay, frictional lag and reversal memory, but not distributed inertia.
+Reduced contact assumes a locally flat plane; ink deposition is bounded by the paper.
+The audited reference paths stay away from its edges. Detailed edge/table contact
+belongs to the native backend, not this reduced approximation.
+
+The design is informed by [Wang et al.'s dynamic brush model](https://arxiv.org/html/2003.01565v1),
+which treats pressure-dependent footprint, drag and orientation and fits parameters
+using measured brush footprints. Our equations are an engineering synthesis, not a
+reproduction of their fitted model or an assertion that their calibration transfers.
+
+## Native elastic rods
+
+The optional backend uses the installed MuJoCo
+[`mujoco.elasticity.cable` plugin](https://github.com/google-deepmind/mujoco/blob/99a64bcf05aa508088c27b2a23dac8cf1273b106/plugin/elasticity/README.md)
+and its [official example](https://github.com/google-deepmind/mujoco/blob/99a64bcf05aa508088c27b2a23dac8cf1273b106/model/plugin/elasticity/cable.xml).
+It supplies inextensible segments, bending/torsion elasticity, inertia, and native
+frictional paper contact. The first segment is clamped to the physical flange;
+there is no mocap brush or external position overwrite. Inter-bundle collisions are
+disabled because these are representative bundles, not solid disjoint hairs.
+Handle–bristle collisions are also excluded: the explicit clamp defines attachment.
+Otherwise embedded capsule roots create unintended additional constraints when
+segments are refined. Regression tests check clean root geometry for coarse/fine rods.
+Ink deposition uses actual paper-contact positions and normal loads, not endpoint
+height. Forces enter robot dynamics through native constraints and are not applied
+a second time. The native backend needs a much smaller timestep than the fast model.
+
+The exploratory `free_hair_bundle` factory describes a freely sliding limit: `N`
+identical hairs are grouped into `B` rods, with `n=N/B` hairs per rod and packing
+fraction `phi`. For individual hair radius `r`, Young modulus `E`, shear modulus
+`G`, and density `rho`:
+
+```
+R = sqrt(n / phi) r
+E_effective = E phi² / n
+G_effective = G phi² / n
+rho_effective = rho phi
+```
+
+This preserves total `EI`, intrinsic `GJ`, and cylindrical mass. MuJoCo capsule
+endcaps add volume, so the factory additionally multiplies density by
+`segment_length / (segment_length + 4R/3)` to preserve cylindrical mass across
+segment counts. It does not preserve exact cross-sectional rotary inertia,
+contact geometry, or the additional stiffness caused by hairs locking together.
+Capillary clumping, inter-hair friction and anisotropic keratin behavior are absent.
+The native nominal tip is the undeformed centerline endpoint; capsule surfaces can
+contact before that point reaches the plane. Changing bundle count changes capsule
+radius and therefore contact geometry, even when mass and EI remain equal. Bundle
+sensitivity is not a formal convergence claim for identical microscopic hairs.
+
+The illustrative reference uses 1,000 hairs, 75 micrometer radius, 30 mm length,
+567 MPa Young modulus and 1,300 kg/m³ density. The count and packing fraction are
+procedural choices. [Greenberg and Fudge (2013), Table 1](https://cpb-us-w2.wpmucdn.com/sites.chapman.edu/dist/c/972/files/2016/09/greenberg_fudge_procb_2012-1rv9su2.pdf)
+reports horse-hair tensile modulus 567 MPa when hydrated versus 3,027 MPa dry.
+Those were slow tensile measurements in water, not brush bending measurements.
+[Yang et al. (2020)](https://www2.lbl.gov/ritchie/Library/PDF/2020-Hair-Matter.pdf)
+gives approximately 150 micrometer horse-hair diameter and contextual keratin
+density around 1,300 kg/m³. The shear modulus assumes isotropic Poisson ratio 0.5;
+no measured shear modulus for the intended brush was established.
+
+The independent cantilever fixture checks the small-deflection discrete beam result
+`delta = F * segment_length³ * sum(j², j=1..segments-1) / sum(EI)`.
+The fixed first segment explains its difference from the continuum `F L³/(3 EI)`;
+refining segments approaches that continuum limit. Authored bundle splay causes a
+small additional difference. Mass, timestep agreement, load linearity and unloaded
+elastic recovery are checked independently of drawing a glyph.
+
+### Touchdown is a separate validation problem
+
+A perfectly straight inextensible rod initially offers essentially no first-order
+axial compliance from bending. Fast touchdown produced force spikes above 20 N even
+though bending tests and solver-warning checks passed. Force is therefore monitored
+at every physics step, not inferred from the 50 Hz recording.
+
+The native demonstration preset now uses a small stress-free quadratic precurvature
+(1 mm nominal lateral tip offset over 30 mm, rescaled to preserve total segment length)
+and a 1 mm/s final approach. Custom cable vertices define the reference curve; the
+plugin's default `flat=false` retains this authored equilibrium shape. These are
+explicit imperfection/approach assumptions, not measured shodo geometry. The contact
+sweep retains zero curvature and 40 mm/s as stress cases, and separately varies
+timestep. Penetration and force sensitivity remain necessary checks; smooth output
+does not establish physical calibration. See the
+[cable composite API](https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-composite)
+and [solver parameter semantics](https://mujoco.readthedocs.io/en/stable/modeling.html#solver-parameters).
+Stress cases above the 8 N episode safety threshold stop early; their reported peaks
+are maxima before truncation, not maxima of a completed glyph.
+
+Default material randomization changes reduced normal stiffness and friction by ±20%.
+For native rods it changes actual geom friction only; the compiled elastic moduli
+remain fixed. Native `normal_stiffness` sets the procedural target-force envelope,
+not the rod constitutive law. Native `tangential_stiffness` scales the aggregate
+force-to-deflection observation; bending and torsion themselves use the Young and
+shear moduli supplied to the cable plugin.
+
+`experiments/pressure.toml` is a separate pressure-focused experiment: ±50% material
+variation, stronger teacher force feedback (0.02 m/N versus 0.0008), and a 0.1 N force
+reward scale versus 0.3 N. It is not silently substituted into the default tracking
+results. Plant-only stress tests override actual stiffness/friction while leaving the
+nominal target-force envelope unchanged.
+
+## Water and pigment
+
+Paper stores three per-cell conserved quantities: water (microliters), mobile
+pigment (micrograms), and fixed pigment (micrograms). Loaded contact points deposit
+continuous ink supply using normalized bilinear splats and a physical Gaussian
+footprint (default sigma 0.6 mm). All microstep contact positions and load-dependent
+supply amounts are accumulated over one controller interval, then deposited together.
+This retains the sampled contact path and integrated supply without invoking raster
+updates at the native rod timestep. Off-paper centers are rejected; Gaussian mass
+outside the grid is discarded and excluded from deposited-mass accounting.
+There is no dipping, finite ink pot, or paper-handling task.
+
+Water and wet mobile pigment spread through symmetric nearest-neighbor fluxes on
+a seeded heterogeneous fiber grid. Fluxes have no-flow boundaries. A diffusion
+CFL bound chooses substeps to preserve positivity, including when resolution changes.
+Adsorption transfers mobile pigment to the fixed field; it does not remove pigment.
+Water evaporates exponentially. Dry pigment does not diffuse. Rendering uses
+Beer-Lambert attenuation of pigment mass per physical area, so changing resolution
+does not change the nominal optical density of an equal mass/area distribution.
+Transport runs at a slower cadence than contact mechanics because moisture changes
+more slowly; final partial intervals are flushed at episode completion.
+
+This is a conservative porous-paper approximation, not a Navier-Stokes or full
+capillary-network solver. It omits fluid advection from brush stirring, nonlinear
+paper saturation, chemical pigment binding, and measured substrate calibration.
+[Wetbrush](https://wanghmin.github.io/publication/chen-2015-wgb/) and the open-source
+[Fluid Paint](https://github.com/dli/paint) demonstrate more detailed bristle/fluid
+coupling, but their GPU/browser paint workflows are not drop-in Python/MuJoCo
+components. The current model keeps transport explicit and testable for CPU training.
+
+## Controlling the ink, not only the handle
+
+Stroke references specify intended contact-center XY, nominal compression depth,
+and a smooth procedural tilt/pressure profile. KanjiVG supplies only ordered
+centerlines; pressure, timing and tilt remain procedural assumptions.
+
+The teacher estimates contact-center offset from loaded bristle samples and offsets
+the desired tool command to compensate for deformation. Feedback corrects the
+remaining contact-center error and normal-force error. The observation exposes
+contact tracking error, command tracking error, a short target preview, arm joint
+state, contact force, aggregate bristle deflection and target pressure.
+Consequently a tool tip may intentionally depart from the centerline while its ink
+tracks it better. Reports distinguish tool-tip RMSE from ink-center RMSE and report
+contact coverage separately; a missing ink trace cannot count as accurate drawing.
+
+### Optional ink-focused learning objective
+
+The default reward is unchanged. The separate `ppo --ink-objective` experiment adds
+`0.65 exp[-(ink_center_XY_error / 0.002 m)²]` during requested drawing with actual
+loaded contacts. No contact earns no bonus; air moves retain the original reward.
+This is a contact-center objective, not a visual or aesthetic score, and it does
+not gate ink deposition. Its wrapper leaves observations, dynamics and pigment
+identical for identical actions; tests verify that separation. The objective is
+recorded in PPO metadata and cannot be silently changed during resume.
+
+This experiment responds to a measured reward tradeoff: longer training of seed7
+improved whole-episode tracking partly through air moves while worsening ink XY
+accuracy. It is opt-in and is evaluated separately; higher composite reward is
+not automatically better drawing.

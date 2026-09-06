@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+from filelock import FileLock
 from svgpathtools import parse_path
 
 DATA = Path("data/kanjivg")
@@ -19,7 +20,13 @@ TEST = "永水日山"
 
 
 def fetch(root: Path = DATA):
+    root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    with FileLock(root / ".fetch.lock", timeout=120):
+        return _fetch(root)
+
+
+def _fetch(root):
     archive = root / "source.zip"
     digest = None
     if archive.exists():
@@ -37,7 +44,9 @@ def fetch(root: Path = DATA):
         for member in source.infolist():
             name = Path(member.filename).name
             if name.endswith(".svg") or "COPYING" in name or "LICENSE" in name:
-                (root / name).write_bytes(source.read(member))
+                temporary = root / (name + ".pending")
+                temporary.write_bytes(source.read(member))
+                temporary.replace(root / name)
                 count += name.endswith(".svg")
     (root / "provenance.json").write_text(
         json.dumps(
@@ -92,7 +101,7 @@ def strokes(char: str, root: Path = DATA) -> list[np.ndarray]:
 
 
 @lru_cache(maxsize=256)
-def trajectory(char: str) -> tuple[np.ndarray, np.ndarray]:
+def trajectory(char: str, touchdown_speed: float = 0.04) -> tuple[np.ndarray, np.ndarray]:
     """Reference at 50 Hz: lift, travel, lower, draw, lift; stroke IDs -1 in air."""
     paths = strokes(char)
     points, ids = [], []
@@ -110,9 +119,11 @@ def trajectory(char: str) -> tuple[np.ndarray, np.ndarray]:
     ids.append(-1)
     for i, path in enumerate(paths):
         segment(np.r_[path[0], 0.025], -1)
-        segment(np.r_[path[0], -0.001], -1, 0.0008)
+        if touchdown_speed < 0.04:
+            segment(np.r_[path[0], 0.005], -1, 0.0008)
+        segment(np.r_[path[0], -0.001], -1, touchdown_speed * 0.02)
         for j, point in enumerate(path):
-            depth = 0.001 + 0.003 * np.sin(np.pi * j / (len(path) - 1)) ** 0.7
+            depth = 0.001 + 0.003 * max(0.0, np.sin(np.pi * j / (len(path) - 1))) ** 0.7
             segment(np.r_[point, -depth], i)
         segment(np.r_[path[-1], 0.025], -1, 0.0008)
     return np.asarray(points), np.asarray(ids)

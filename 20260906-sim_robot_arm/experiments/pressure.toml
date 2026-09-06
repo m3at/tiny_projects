@@ -1,0 +1,5 @@
+# Pressure-focused alternative. The default remains the original tracking objective.
+randomize = true
+material_variation = 0.5
+force_feedback_gain = 0.02
+force_tolerance = 0.1

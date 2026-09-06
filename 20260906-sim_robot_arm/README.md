@@ -1,119 +1,202 @@
 # Shodo arm laboratory
 
-A headless Python 3.13 / MuJoCo environment for learning to move a brush along
-Japanese stroke trajectories. Includes downloaded KanjiVG data, a Gymnasium API,
-an analytic teacher, behavior cloning, PPO, quantitative evaluation, and offscreen
-animation of the physical arm alongside its actual ink trace.
+A headless Python 3.13 laboratory for target-conditioned brush control: a torque-driven
+seven-joint Panda, elastic/frictional bristle bundles, water/pigment transport, KanjiVG
+stroke paths, imitation learning, and residual reinforcement learning. Training needs
+no GUI or GPU. Offscreen recordings show the executed arm and actual ink.
 
-The environment has been trained and validated locally; see [VALIDATION.md](VALIDATION.md)
-for measured tracking accuracy, performance, checked commands and limitations.
+The v2 simulation audit includes 5,460 cohort episodes across 260 glyphs, 24 tests,
+and reduced/native numerical checks. [VALIDATION.md](VALIDATION.md) records results
+and controller tradeoffs; [PHYSICS.md](PHYSICS.md) explains models and sources.
+[WORK_LOG.md](WORK_LOG.md) preserves the chronological engineering record.
+These are uncalibrated simulations, not demonstrated sim-to-real shodo.
 
-## Run
+## Quick start
 
 Install [uv](https://docs.astral.sh/uv/), then:
 
 ```sh
 make setup
-make data          # checksum-verified, pinned KanjiVG release (~12 MB)
+make data
 make check
-make train         # collect teacher demonstrations and train CPU MLP
-make validate      # held-out baselines + API + offscreen rendering gates
+make train
+make validate
 make demo CHARS=永水
 ```
 
-`runs/validation-rollout.gif` shows the arm and paper; `runs/validation-rollout.png` is the
-final ink. Evaluation metrics are in `runs/evaluation.json`. Checkpoints and data
-stay local and are ignored by git. First trajectory preparation is cached in memory
-and takes longer than subsequent episodes. Training needs no display or GPU.
-Offscreen rendering uses MuJoCo's OpenGL backend; Linux servers may require
-`MUJOCO_GL=egl make demo` and an EGL driver, or `MUJOCO_GL=osmesa` with OSMesa.
-macOS uses its native offscreen OpenGL context. No interactive viewer is launched.
+Data acquisition verifies the pinned KanjiVG archive and every pinned Panda mesh.
+This experimental workspace keeps `uv.lock` local under its existing `.gitignore`;
+`make setup` creates it if absent and honors it with `--locked` thereafter.
+`runs/v2/final-source.zip` preserves the audited source and matching local lock.
+New artifacts default to `runs/v2`; original v1 outputs remain in `runs/`.
+Data/checkpoints are local and ignored by git. Use separate `--run-dir` directories
+to preserve comparisons: rerunning a command replaces its corresponding outputs.
 
-For reinforcement learning experiments:
+`runs/v2/validation-rollout.gif` shows the arm and paper. The PNG is final ink,
+NPZ stores named trajectory/force/joint columns, and JSON contains metrics/provenance.
+macOS uses native offscreen OpenGL. Linux may need an EGL driver with
+`MUJOCO_GL=egl make demo`, or OSMesa with `MUJOCO_GL=osmesa`; Linux rendering
+has not been tested on this host. No interactive viewer is launched.
+
+## Learning and evaluation
 
 ```sh
-make ppo STEPS=32768
-uv run shodo evaluate --policy ppo
-uv run shodo demo --policy ppo --chars 永
+uv run shodo train --episodes 56 --epochs 60 --seed 7
+uv run shodo evaluate --chars 永水日山
+
+# Frozen imitation controller plus learned residual correction.
+uv run shodo ppo --residual --base-policy runs/v2/bc.pt \
+  --steps 1000000 --run-dir runs/v2/residual-seed7 --seed 7
+uv run shodo evaluate --policy ppo --run-dir runs/v2/residual-seed7
+uv run shodo validate --policy ppo --run-dir runs/v2/residual-seed7
+uv run shodo demo --policy ppo --run-dir runs/v2/residual-seed7 --chars 永
+
+# Omit --residual to train PPO from scratch.
+uv run shodo ppo --steps 1000000 --run-dir runs/v2/ppo-seed7 --seed 7
 ```
 
-PPO starts from scratch; this budget is a pipeline exercise, not a quality guarantee.
-The supplied behavior-cloning baseline is the fast route to a working controller.
-`uv run shodo demo --policy expert --chars 永` replays the analytic teacher.
+Training records seeds, configuration, package versions, source hashes, and source
+snapshots. Locks prevent concurrent trainers from writing one directory. PPO writes
+periodic atomic checkpoints. `--resume` continues the checkpoint/optimizer with
+matching configuration, objective, seed, training characters and residual base;
+it starts a new environment episode, not a bitwise replay of interrupted simulator/RNG state.
+Evaluation, demo and validation reuse the learned checkpoint's configuration with
+nominal materials by default; an explicit `--config` overrides it. For a resumed
+nondefault training run, supply the same original `--config` and residual base.
 
-Keep separate experiments with `--run-dir runs/my-experiment`. For example,
-`uv run shodo train --run-dir runs/seed42 --seed 42 --episodes 56 --epochs 50`, then
-`uv run shodo evaluate --run-dir runs/seed42`. Every training run records its seed,
-dataset identity, package versions and source hashes. Rollout NPZ files contain
-actual/target XYZ, joint positions and stroke IDs, with a `columns` array naming fields.
-Rollout JSON also retains KanjiVG attribution. Reusing a run directory replaces its
-artifacts; use a new directory for a comparison you want to preserve.
+Default training characters are **一二三十木大人**, held out **永水日山**.
+`--chars` overrides the command's training/evaluation/demo set. Validation rejects
+training overlap. Held-out glyphs test control on new supplied paths, not recognition
+or autonomous glyph generation.
 
-## Environment contract
+`ppo --ink-objective` optionally adds a loaded-ink accuracy bonus during drawing;
+it changes training rewards only. This separate experiment addresses the observed
+case where longer training improved air tracking but worsened actual ink accuracy.
+Its audit shows an ink/pressure tradeoff; it is not the default objective. Resume
+such a run with the same flag. See [PHYSICS.md](PHYSICS.md) for the exact reward
+and limitations.
 
-The arm is a purpose-built 3-DOF SCARA: two horizontal revolute joints (270 and
-250 mm links), plus a vertical brush slide. The brush is attached directly; there
-is no hand, ink dipping, or paper handling. Its orientation is fixed vertical.
-Position actuators have finite stiffness, damping and force limits; MuJoCo integrates
-joint dynamics at 500 Hz. A controller step integrates ten physics steps (50 Hz).
-Inverse kinematics drives actuator targets; only reset sets the initial joint pose.
+## Simulation contract
 
-Actions are three Cartesian increments in [-1, 1], each scaled to 4 mm per control
-step, then clipped to the reachable paper workspace. This is a high-level tracking
-task with an existing joint servo, not raw torque learning. The 12 float32 observations
-are target-minus-tip / 4 mm, command-minus-tip / 4 mm, three joint velocities / 5,
-and tip position relative to (0.32, 0, 0) / 0.1 m. The target is supplied by the
-stroke planner; the policy does not invent glyphs from an image or character code.
-Reward is `exp(-(3D_error / 8mm)^2) - 0.002 * sum(action^2)`.
-Episodes end after the complete reference trajectory; numerical instability truncates.
-`reset(seed=..., options={"char": "永"})` selects a reproducible glyph and cleans paper.
+The pinned Apache-2.0 Menagerie Panda has no hand and carries a 40 g brush handle.
+Six Cartesian increments command XYZ and rotation-vector changes. Damped inverse
+kinematics feeds torque-limited inverse-dynamics joint servos. Only reset sets joint
+positions directly. Default control is 50 Hz, physics 500 Hz; action scales are
+4 mm / 0.03 rad per control step.
 
-SVG paths are sampled by arc length, transformed from 109×109 coordinates onto a
-180 mm square, with Y flipped into world coordinates. Explicit lifts to 25 mm
-separate strokes. Drawing speed is at most 40 mm/s, air travel at most 60 mm/s.
-Stroke order and direction come from upstream SVG document order. A -1 mm drawing
-height and height-dependent circular footprint approximate brush compression. Ink
-is deposited from the **actual simulated tip** each physics step, including accidental
-marks; it is never copied from the target or gated by the target's pen state.
+The 40 float32 observations contain contact-center tracking error, command error,
+target preview, seven joint positions/velocities, brush force/deflection, target force,
+contact fraction, and tip height. Checkpoint contract is version 3; SCARA policies
+are incompatible. Reward combines tracking, orientation, force and action effort.
 
-The nib and paper have no hard contact constraint: negative height represents soft
-brush compression. This deliberate low-cost model does not simulate bristles,
-contact force, ink fluid flow, absorption, brush tilt, or paper friction. It is useful
-for trajectory/pen-lift controller experiments, not validated sim-to-real shodo.
+The fast brush has 19 elastic/frictional bundles, persistent sticking/sliding contacts,
+pressure-dependent spread, and force/moment feedback into the robot. Ink deposits at
+**actual loaded contacts**, including accidental marks; it is never copied from the
+target or gated by the target's stroke state. Conservative water/mobile/fixed-pigment
+grids model spreading, adsorption and drying. Supply is continuously fed; dipping,
+finite reservoirs and paper handling are absent.
+
+Reports separate handle-tip error from ink-center error: the handle intentionally
+offsets to compensate brush deformation. Visible ink coverage/spill complement
+tracking and contact metrics; missing ink is not successful drawing.
+
+## Native rods and settings
+
+```sh
+uv run shodo demo --policy expert --config experiments/quality.toml --chars 永
+uv run shodo demo --policy expert --config experiments/cable.toml \
+  --run-dir runs/v2/native-demo --chars 永
+uv run python -m shodo.mechanics
+uv run python scripts/contact_sweep.py
+```
+
+TOML settings configure materials, bundle count, paper grid/transport and timestep.
+`experiments/quality.toml` uses 37 bundles and a 512² grid. The optional native MuJoCo
+cable backend adds rod inertia, bending/torsion and native contact. The curved,
+slow-touchdown preset passes four-glyph numerical and reduced-to-native BC transfer
+checks; completed refinement studies show remaining geometric sensitivity. Straight,
+axially rigid rods can generate touchdown spikes hidden by low-rate recordings. The audit measures
+microstep force peaks, penetration, and timestep/geometric sensitivity. A smooth
+recording and no solver warnings are not sufficient validation. Native simulation
+is substantially slower than the reduced model.
+
+`free_hair_bundle()` preserves summed bending rigidity and cylindrical hair mass
+across bundle/segment counts. Its wet-hair material analogue is not calibration of a
+particular brush. [PHYSICS.md](PHYSICS.md) gives equations and primary references.
+
+`experiments/cable-fast.toml` is an optional native speed/accuracy tradeoff: 2 mm
+reference curvature and 5 mm/s touchdown. Teacher and transferred BC pass the same
+107 checks. On 永, the teacher takes 26.48 rather than 50.48 simulated seconds,
+but ink error rises from 2.14 to 2.31 mm and peak load from 0.44 to 0.66 N.
+It does not replace the slower reference preset.
+
+`experiments/pressure.toml` separately tests stronger force feedback, a tighter
+pressure reward and ±50% material variation. It improves pressure robustness in the
+completed teacher/BC material grid; it does not silently change the default model:
+
+```sh
+make train CONFIG=experiments/pressure.toml RUN_DIR=runs/v2/pressure \
+  EPISODES=56 EPOCHS=60
+make evaluate RUN_DIR=runs/v2/pressure
+
+# Optional pressure-focused residual, then a separate ink-bonus combination.
+uv run shodo ppo --residual --base-policy runs/v2/pressure/bc.pt \
+  --config experiments/pressure.toml --steps 1000000 --seed 7 \
+  --run-dir runs/v2/pressure-residual
+uv run shodo ppo --residual --base-policy runs/v2/pressure/bc.pt \
+  --config experiments/pressure.toml --steps 1000000 --seed 7 \
+  --ink-objective --run-dir runs/v2/pressure-ink-residual
+```
+
+The combination improves material-grid ink accuracy relative to pressure-only PPO,
+with similar mean force error but a worse maximum force error. Neither replaces
+the fixed default comparison; see the full tradeoff table in VALIDATION.md.
+
+## Reproducing the longer audits
+
+After training the named checkpoints above, these scripts reproduce the fixed
+geometry, numerical and material studies. The broad cohort and fine native rods
+can take hours on a CPU; they are not part of the quick test suite.
+
+```sh
+uv run python scripts/dataset_audit.py
+uv run python scripts/reduced_audit.py
+uv run python scripts/material_sweep.py
+uv run python scripts/heldout_sweep.py --count 256
+uv run python scripts/heldout_sweep.py --count 256 \
+  --policies pressure-ink-residual --output runs/v2/heldout-pressure-ink
+uv run python scripts/material_sweep.py --policies pressure-ink-residual \
+  --output runs/v2/material-pressure-ink-residual
+uv run python scripts/native_audit.py --chars 一永 \
+  --cases dt-0.0001 bundles-7-segments-12 bundles-19-segments-6 bundles-19-segments-12
+make benchmark CHARS=永
+uv run python scripts/ik_benchmark.py
+```
+
+Run throughput measurements after competing jobs stop. The end-to-end benchmark
+includes warm teacher/control/dynamics/ink execution, excluding reset, loading and
+rendering, with a fixed seed of 7. The separate IK benchmark measures only equivalent
+prerequisite stages and Jacobians, not a whole-simulator speedup. See [VALIDATION.md](VALIDATION.md) for
+results and the exploratory status of additional pressure-controller comparisons.
 
 ## Data and attribution
 
-`make data` downloads the [KanjiVG r20250816 main release](https://github.com/KanjiVG/kanjivg/releases/tag/r20250816)
-with SHA-256 `69a2944ec1183086fdee5ba9c1f48bc306b867480a95b2f337f3203bf50689a3`.
-The full main collection is extracted locally, with provenance JSON and original
-SVG notices. KanjiVG is by **Ulrich Apel and contributors**, licensed
-[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). Preserve attribution,
-identify resampling/coordinate/height modifications, and apply share-alike terms
-when distributing derived trajectory datasets. This dataset license is separate
-from the parent repository's code license.
+[KanjiVG r20250816](https://github.com/KanjiVG/kanjivg/releases/tag/r20250816) supplies
+6,702 SVGs with SHA-256
+`69a2944ec1183086fdee5ba9c1f48bc306b867480a95b2f337f3203bf50689a3`.
+Ulrich Apel and contributors license it under
+[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). Original notices and
+provenance are retained. Preserve attribution and share-alike terms when distributing
+derived trajectories. The separate Panda asset license is retained beside its meshes.
 
-KanjiVG provides schoolbook centerlines and stroke order, **not expert brush motion,
-pressure, tilt or timing**. Those quantities in this project are synthetic. See the
-[official format](https://kanjivg.tagaini.net/svg-format.html) and
-[download documentation](https://kanjivg.tagaini.net/files.html).
+KanjiVG supplies ordered schoolbook centerlines, **not measured pressure, tilt,
+timing or force**. Paths are resampled into a 180 mm square; lifts, pressure envelopes,
+tilt and timing are procedural. There is no learned visual/style objective.
 
-Default training glyphs are 一二三十木大人; evaluation holds out 永水日山. Holding out
-glyphs tests a target-conditioned controller on new paths, not character recognition.
-The collection includes other characters; use any available Unicode glyph with `--chars`.
+## Code map
 
-Further research: [AnimCJK](https://github.com/parsimonhi/animCJK) adds Japanese glyph
-outlines and medians, potentially useful as raster targets; its assets have mixed
-Arphic/LGPL licensing and are not bundled here. [Wang et al.](https://arxiv.org/abs/1911.08002)
-study dynamic brush models, while [Jia and Manocha](https://arxiv.org/abs/2309.08457)
-use behavior cloning and reinforcement learning for brush manipulation. These are
-extension directions, not evidence that this simplified simulator transfers to hardware.
-
-## Extend
-
-`src/shodo/data.py` owns acquisition and trajectory generation; `arm.xml` owns
-mechanics; `env.py` owns control, observation/reward and ink; `learning.py` owns the
-baseline; `cli.py` owns commands. Start with trajectory speed, brush depth, or reward
-experiments. For pressure learning, add a calibrated compliant contact model and
-force observations. For style learning, obtain licensed brush demonstrations or
-silhouette targets and replace the target-conditioned objective. Keep held-out glyphs
-separate and compare against both teacher and stationary baselines.
+`data.py` prepares paths; `robot.py` constructs/drives the Panda; `brush.py` and
+`cable.py` implement brushes; `ink.py` transports water/pigment; `env.py` provides
+Gymnasium control; `learning.py` and `rl.py` train policies; `mechanics.py` and
+`validation.py` check physical/numerical and end-to-end behavior. Keep held-out
+baselines, test physical invariants, and profile before optimizing.

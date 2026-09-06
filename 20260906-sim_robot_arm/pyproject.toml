@@ -3,10 +3,10 @@ name = "shodo-arm"
 version = "0.1.0"
 description = "MuJoCo brush-arm learning laboratory with KanjiVG trajectories"
 requires-python = ">=3.13,<3.14"
-dependencies = ["mujoco>=3.3,<4", "gymnasium>=1.1,<2", "numpy>=2.2,<3", "pillow>=11,<13", "svgpathtools>=1.6,<2", "torch>=2.6,<3", "stable-baselines3>=2.6,<3"]
+dependencies = ["mujoco>=3.12,<4", "gymnasium>=1.1,<2", "numpy>=2.2,<3", "pillow>=11,<13", "svgpathtools>=1.6,<2", "torch>=2.6,<3", "stable-baselines3>=2.6,<3", "scipy>=1.15,<2", "filelock>=3.18,<4"]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.12"]
+dev = ["pytest>=8,<10", "ruff>=0.12", "matplotlib>=3.10,<4"]
 
 [project.scripts]
 shodo = "shodo.cli:main"
@@ -20,4 +20,3 @@ packages = ["src/shodo"]
 
 [tool.ruff]
 line-length = 100
-

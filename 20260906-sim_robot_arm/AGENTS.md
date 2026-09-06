@@ -5,11 +5,11 @@ directory; the parent is an unrelated multi-project repository. Never commit dow
 data, virtual environments, or bulky training runs. Preserve source attribution in
 derived datasets. Run `make check` and `make validate` after simulation changes.
 
-Architecture: pinned KanjiVG SVGs -> arc-length sampled 3D brush trajectories ->
-Gymnasium environment -> MuJoCo SCARA position servos -> actual-tip ink raster.
-Learning uses Cartesian velocity commands through analytic inverse kinematics, not
-direct pose teleportation. The articulated arm is simulated dynamically. The brush
-is an approximate compliant ink deposition model, not a bristle or fluid solver.
+Architecture: pinned KanjiVG SVGs -> pressure/tilt/contact trajectories -> Gymnasium
+environment -> torque-driven Menagerie Panda -> coupled brush -> conservative ink grid.
+The fast brush uses elastic/frictional bundles; optional native rods use MuJoCo's cable
+plugin. Six Cartesian pose increments go through damped IK and inverse dynamics.
+See PHYSICS.md for equations, source attribution and limits. Never teleport outside reset.
 
 Default train characters: 一二三十木大人. Held-out characters: 永水日山.
 Never claim calligraphy mastery or sim-to-real readiness from trajectory tracking.
@@ -19,7 +19,15 @@ Online research may be delegated as requested by the user. Prefer official prima
 sources and document limitations. Keep tests focused on integration and invariants.
 
 Current validation and known approximations are recorded in VALIDATION.md. Canonical
-outputs use `runs/validation-rollout.*`; `runs/initial-pass/` contains obsolete early
+outputs use `runs/v2/validation-rollout.*`; `runs/initial-pass/` contains obsolete early
 renders. Training seeds/settings, package versions and source hashes are saved with
 artifacts. `make ppo` and `shodo evaluate --policy ppo` have also been exercised.
 Avoid opening a GUI: default operation and rendering must remain headless.
+
+The extended v2 audit is complete; WORK_LOG.md preserves its chronological record.
+VALIDATION.md separates the fixed comparison from exploratory controller extensions
+and documents remaining physical limitations. New work lives in runs/v2; checkpoint
+observation contract is version 3 because tracking includes brush contact offset.
+Preserve old recordings and checkpoints in archives. Native cable checks include
+beam response, mass, recovery, penetration, force and timestep/geometric sensitivity;
+absence of solver warnings alone remains insufficient evidence of physical accuracy.

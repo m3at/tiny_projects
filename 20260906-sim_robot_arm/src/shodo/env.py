@@ -15,7 +15,7 @@ from shodo.data import TRAIN, trajectory
 from shodo.ink import Paper
 from shodo.robot import DOWN, Panda
 
-OBSERVATION_VERSION = 2
+OBSERVATION_VERSION = 3
 OBSERVATIONS = 40
 ACTIONS = 6
 HISTORY_COLUMNS = [
@@ -39,12 +39,14 @@ HISTORY_COLUMNS = [
     "contact_bundles",
     "torque_fraction",
     "pigment_mass",
+    "ink_x",
+    "ink_y",
 ]
 
 
 @lru_cache(maxsize=256)
-def reference(char, paper_x=0.5):
-    path, ids = trajectory(char)
+def reference(char, paper_x=0.5, touchdown_speed=0.04):
+    path, ids = trajectory(char, touchdown_speed)
     path = path.copy()
     path[:, 0] += paper_x - 0.32
     path = gaussian_filter1d(path, 1.2, axis=0, mode="nearest")
@@ -66,11 +68,12 @@ class ShodoEnv(gym.Env):
         if not chars or render_mode not in (None, "rgb_array"):
             raise ValueError("Expected characters and optional rgb_array render mode")
         self.chars, self.render_mode, self.config = chars, render_mode, config
-        self.robot = Panda(config.timestep)
+        self.robot = Panda(config.timestep, config.brush)
         self.model, self.data = self.robot.model, self.robot.data
         self.action_space = gym.spaces.Box(-1, 1, (ACTIONS,), dtype=np.float32)
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, (OBSERVATIONS,), dtype=np.float32)
         self.renderer = None
+        self.zero = np.zeros(3)
         self.scales = np.r_[np.full(3, config.translation_step), np.full(3, config.rotation_step)]
 
     @property
@@ -81,6 +84,18 @@ class ShodoEnv(gym.Env):
     def pose(self):
         return np.r_[self.tip, Rotation.from_matrix(self.robot.rotation @ DOWN.T).as_rotvec()]
 
+    @property
+    def tracking_pose(self):
+        pose = self.pose
+        if (
+            self.stroke_ids[min(self.index, len(self.path) - 1)] >= 0
+            and self.brush.ink_loads.sum() > 1e-6
+        ):
+            pose[:2] = np.average(
+                self.brush.ink_positions[:, :2], axis=0, weights=self.brush.ink_loads
+            )
+        return pose
+
     def _obs(self):
         i = min(self.index, len(self.path) - 1)
         target = np.r_[self.path[i], self.tilts[i]]
@@ -89,11 +104,11 @@ class ShodoEnv(gym.Env):
         ]
         pose = self.pose
         return np.r_[
-            (target - pose) / self.scales,
+            (target - self.tracking_pose) / self.scales,
             (self.command - pose) / self.scales,
             (preview - target) / self.scales,
-            self.data.qpos / 3,
-            self.data.qvel / 5,
+            self.data.qpos[:7] / 3,
+            self.data.qvel[:7] / 5,
             self.brush.force,
             self.brush.deflection / 0.004,
             self.target_force[i],
@@ -104,15 +119,31 @@ class ShodoEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.char = (options or {}).get("char", self.np_random.choice(list(self.chars)))
-        self.path, self.stroke_ids, self.tilts = reference(self.char, self.config.paper_x)
+        self.path, self.stroke_ids, self.tilts = reference(
+            self.char, self.config.paper_x, self.config.touchdown_speed
+        )
         cfg = self.config.brush
         if self.config.randomize:
+            variation = self.config.material_variation
+            stiffness_scale = self.np_random.uniform(1 - variation, 1 + variation)
             cfg = replace(
                 cfg,
-                normal_stiffness=cfg.normal_stiffness * self.np_random.uniform(0.8, 1.2),
-                friction=cfg.friction * self.np_random.uniform(0.8, 1.2),
+                normal_stiffness=cfg.normal_stiffness
+                * (stiffness_scale if cfg.backend == "reduced" else 1),
+                friction=cfg.friction * self.np_random.uniform(1 - variation, 1 + variation),
             )
-        self.brush = Brush(cfg)
+        material = (options or {}).get("material", {})
+        allowed = {"friction"} if cfg.backend == "cable" else {"friction", "normal_stiffness"}
+        if set(material) - allowed:
+            raise ValueError(f"Runtime material overrides must be drawn from {sorted(allowed)}")
+        cfg = replace(cfg, **material)
+        if cfg.backend == "cable":
+            from shodo.cable import CableBrush
+
+            self.brush = CableBrush(self.robot, cfg)
+            self.model.geom_friction[list(self.brush.geom_bundle), 0] = cfg.friction
+        else:
+            self.brush = Brush(cfg)
         depth = -self.path[:, 2, None] - self.brush.radial[None, :] ** 2 * 0.0012
         self.target_force = self.config.brush.normal_stiffness * np.maximum(depth, 0).mean(axis=1)
         self.index = 0
@@ -123,16 +154,28 @@ class ShodoEnv(gym.Env):
             self.config.ink, self.config.paper_x, seed=int(self.np_random.integers(2**31))
         )
         self.history = []
+        self.ink_clock = 0.0
+        self.peak_force = 0.0
+        self.force_impulse = np.zeros(3)
+        self.peak_torque_fraction = 0.0
         self.done = False
         return self._obs(), {"char": self.char}
 
     def expert(self):
         i = min(self.index, len(self.path) - 1)
         target = np.r_[self.path[i], self.tilts[i]]
-        correction = 0.65 * (target - self.pose)
+        pose = self.pose
+        tracked = self.tracking_pose if self.config.compensate_brush else pose
+        desired = target.copy()
+        desired[:2] -= np.clip(tracked[:2] - pose[:2], -0.02, 0.02)
+        correction = 0.65 * (target - tracked)
         if self.stroke_ids[i] >= 0:
-            correction[2] -= 0.0008 * (self.target_force[i] - self.brush.force[2])
-        return np.clip((target - self.command + correction) / self.scales, -1, 1).astype(np.float32)
+            correction[2] -= self.config.force_feedback_gain * (
+                self.target_force[i] - self.brush.force[2]
+            )
+        return np.clip((desired - self.command + correction) / self.scales, -1, 1).astype(
+            np.float32
+        )
 
     def step(self, action):
         if self.done:
@@ -148,23 +191,44 @@ class ShodoEnv(gym.Env):
         )
         self.robot.q_target = self.robot.inverse(self.command[:3], self.command[3:])
         cfg = self.config
-        for j in range(cfg.substeps):
-            force, torque = self.brush.update(
-                self.tip, self.robot.rotation, cfg.timestep, cfg.paper_z
+        deposits, masses = [], []
+        for _ in range(cfg.substeps):
+            if self.brush.native:
+                self.robot.step(self.zero, self.zero)
+                self.brush.update(self.tip, self.robot.rotation, cfg.timestep, cfg.paper_z)
+            else:
+                force, torque = self.brush.update(
+                    self.tip, self.robot.rotation, cfg.timestep, cfg.paper_z
+                )
+                self.robot.step(force, torque)
+            self.peak_force = max(self.peak_force, float(self.brush.force[2]))
+            if cfg.record:
+                self.force_impulse += self.brush.force * cfg.timestep
+                self.peak_torque_fraction = max(
+                    self.peak_torque_fraction,
+                    float(np.max(np.abs(self.data.ctrl) / self.model.actuator_ctrlrange[:, 1])),
+                )
+            load = self.brush.ink_loads
+            total = load.sum()
+            if total > 1e-6:
+                wet = min(1.0, total / cfg.brush.transfer_load)
+                deposits.append(self.brush.ink_positions.copy())
+                masses.append(load * (cfg.timestep * wet / total))
+        if masses:
+            weights = np.concatenate(masses)
+            supplied_time = weights.sum()
+            self.paper.deposit(
+                np.concatenate(deposits),
+                weights,
+                cfg.brush.water_flow * supplied_time,
+                cfg.brush.pigment_flow * supplied_time,
             )
-            self.robot.step(force, torque)
-            if j % 5 == 4:
-                load = self.brush.normal
-                if load.sum() > 1e-6:
-                    wet = min(1.0, load.sum() / 0.3)
-                    self.paper.deposit(
-                        self.brush.contact,
-                        load,
-                        cfg.brush.water_flow * cfg.timestep * 5 * wet,
-                        cfg.brush.pigment_flow * cfg.timestep * 5 * wet,
-                    )
-        self.paper.advance(cfg.dt)
-        error = float(np.linalg.norm(self.tip - self.path[self.index]))
+        self.ink_clock += cfg.dt
+        if self.ink_clock >= cfg.ink.transport_dt - 1e-12 or self.index == len(self.path) - 1:
+            self.paper.advance(self.ink_clock)
+            self.ink_clock = 0.0
+        tracked = self.tracking_pose
+        error = float(np.linalg.norm(tracked[:3] - self.path[self.index]))
         angular = float(np.linalg.norm(self.pose[3:] - self.tilts[self.index]))
         force_error = float(self.brush.force[2] - self.target_force[self.index])
         torque_fraction = float(
@@ -173,7 +237,7 @@ class ShodoEnv(gym.Env):
         reward = float(
             0.65 * np.exp(-((error / 0.008) ** 2))
             + 0.15 * np.exp(-((angular / 0.15) ** 2))
-            + 0.2 * np.exp(-((force_error / 0.3) ** 2))
+            + 0.2 * np.exp(-((force_error / cfg.force_tolerance) ** 2))
             - 0.002 * np.square(action).sum()
         )
         if cfg.record:
@@ -181,7 +245,7 @@ class ShodoEnv(gym.Env):
                 np.r_[
                     self.tip,
                     self.path[self.index],
-                    self.data.qpos,
+                    self.data.qpos[:7],
                     self.stroke_ids[self.index],
                     self.brush.force[2],
                     self.target_force[self.index],
@@ -189,14 +253,16 @@ class ShodoEnv(gym.Env):
                     self.brush.touching.sum(),
                     torque_fraction,
                     self.paper.mobile.sum() + self.paper.fixed.sum(),
+                    tracked[:2],
                 ]
             )
         self.index += 1
         terminated = self.index == len(self.path)
         truncated = bool(
             not np.isfinite(self.data.qpos).all()
-            or np.linalg.norm(self.data.qvel) > 100
-            or self.brush.force[2] > 8.0
+            or np.linalg.norm(self.data.qvel[:7]) > 100
+            or self.peak_force > 8.0
+            or (self.data.warning.number > 0).any()
         )
         self.done = terminated or truncated
         return (

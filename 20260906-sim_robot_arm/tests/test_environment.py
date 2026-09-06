@@ -1,12 +1,14 @@
 from dataclasses import replace
 
+import mujoco
 import numpy as np
 import pytest
 from gymnasium.utils.env_checker import check_env
+from scipy.spatial.transform import Rotation
 
 from shodo.brush import Brush
-from shodo.config import InkConfig, SimConfig
-from shodo.data import strokes, trajectory
+from shodo.config import InkConfig, SimConfig, free_hair_bundle
+from shodo.data import TEST, TRAIN, strokes, trajectory
 from shodo.env import ACTIONS, ShodoEnv
 from shodo.ink import Paper
 from shodo.robot import DOWN, Panda
@@ -23,6 +25,24 @@ def test_panda_pose_and_reaction():
     assert np.linalg.norm(robot.data.qfrc_applied) > 0.01
     assert np.linalg.norm(robot.data.qvel) > 1e-5
     assert (np.abs(robot.data.ctrl) <= robot.model.actuator_ctrlrange[:, 1]).all()
+
+
+def test_ik_minimal_pipeline_matches_full_dynamics():
+    robot = Panda()
+    full, minimal = mujoco.MjData(robot.model), mujoco.MjData(robot.model)
+    a, b = np.zeros_like(robot.jac), np.zeros_like(robot.jac)
+    rng = np.random.default_rng(7)
+    for q in rng.uniform(
+        robot.model.jnt_range[:7, 0] + 0.01, robot.model.jnt_range[:7, 1] - 0.01, (20, 7)
+    ):
+        full.qpos[:7] = minimal.qpos[:7] = q
+        mujoco.mj_forward(robot.model, full)
+        mujoco.mj_kinematics(robot.model, minimal)
+        mujoco.mj_comPos(robot.model, minimal)
+        mujoco.mj_jacSite(robot.model, full, a[:3], a[3:], robot.site)
+        mujoco.mj_jacSite(robot.model, minimal, b[:3], b[3:], robot.site)
+        np.testing.assert_array_equal(full.site_xpos[robot.site], minimal.site_xpos[robot.site])
+        np.testing.assert_array_equal(a, b)
 
 
 def test_bristle_pressure_friction_and_memory():
@@ -70,6 +90,44 @@ def test_paper_conservation_drying_and_boundaries():
     distribution = paper.mobile + paper.fixed
     paper.advance(1.0)
     np.testing.assert_allclose(paper.mobile + paper.fixed, distribution, atol=1e-14)
+    with pytest.raises(ValueError):
+        paper.advance(-0.1)
+    with pytest.raises(ValueError):
+        paper.deposit(np.array([[0.5, 0, 0]]), np.ones(1), -1.0, 1.0)
+
+
+def test_bristle_force_and_moment_rotate_with_the_motion():
+    original, transformed = Brush(), Brush()
+    rotation = Rotation.from_rotvec([0, 0, 0.73]).as_matrix()
+    origin = np.array([0.5, 0.0, 0.0])
+    shift = np.array([0.02, -0.01, 0.0])
+    for x in np.linspace(-0.01, 0.01, 30):
+        tip = origin + [x, 0.003 * np.sin(100 * x), -0.003]
+        original.update(tip, DOWN, 0.002)
+        transformed.update(origin + shift + rotation @ (tip - origin), rotation @ DOWN, 0.002)
+        np.testing.assert_allclose(transformed.force, rotation @ original.force, atol=1e-12)
+        np.testing.assert_allclose(transformed.torque, rotation @ original.torque, atol=1e-12)
+
+
+@pytest.mark.parametrize("sigma", [0, 0.006])
+def test_paper_edge_accounting_and_large_transport_step(sigma):
+    config = replace(
+        InkConfig(),
+        resolution=32,
+        contact_sigma=sigma,
+        water_diffusion=1e-4,
+        pigment_diffusion=1e-4,
+    )
+    paper = Paper(config, seed=4)
+    # One valid point near a corner, one wholly outside; do not renormalize loss.
+    paper.deposit(np.array([[0.401, -0.099, 0], [0.8, 0, 0]]), np.ones(2), 2.0, 4.0)
+    water, pigment = paper.deposited_water, paper.deposited_pigment
+    assert 0 < water <= 1.0
+    assert 0 < pigment <= 2.0
+    paper.advance(2.0)
+    assert min(paper.water.min(), paper.mobile.min(), paper.fixed.min()) >= 0
+    assert paper.water.sum() == pytest.approx(water * np.exp(-0.3), rel=1e-12)
+    assert (paper.mobile + paper.fixed).sum() == pytest.approx(pigment, rel=1e-12)
 
 
 def test_ink_timestep_and_resolution():
@@ -78,6 +136,9 @@ def test_ink_timestep_and_resolution():
         paper = Paper(replace(InkConfig(), resolution=resolution), seed=1)
         paper.fibers[:] = 1
         paper.deposit(np.array([[0.5, 0, 0]]), np.ones(1), 1.0, 1.0)
+        coordinate = (np.arange(resolution) + 0.5) * paper.dx - 0.105
+        radius2 = coordinate[:, None] ** 2 + coordinate[None, :] ** 2
+        initial = np.sum(paper.water * radius2) / paper.water.sum()
         for _ in range(round(1 / dt)):
             paper.advance(dt)
         coordinate = (np.arange(resolution) + 0.5) * paper.dx - 0.105
@@ -85,12 +146,17 @@ def test_ink_timestep_and_resolution():
             np.sum(paper.water * (coordinate[:, None] ** 2 + coordinate[None, :] ** 2))
             / paper.water.sum()
         )
-        # Subtract bilinear initialization variance; diffusion adds 4*D*t in 2D.
-        moments.append(moment - paper.dx**2 / 2)
+        # Subtract the deposited footprint; diffusion adds 4*D*t in 2D.
+        moments.append(moment - initial)
     np.testing.assert_allclose(moments, 4 * 2e-7, rtol=1e-6)
 
 
 def test_strokes_api_and_clean_reset():
+    for char in TRAIN + TEST + "書道愛龍風雨":
+        path, ids = trajectory(char)
+        assert np.isfinite(path).all(), char
+        assert len(path) == len(ids)
+        assert np.all(np.diff(ids[ids >= 0]) >= 0)
     assert len(strokes("永")) == 5
     path, ids = trajectory("永")
     assert set(ids) == {-1, 0, 1, 2, 3, 4}
@@ -114,5 +180,64 @@ def test_strokes_api_and_clean_reset():
         assert env.paper.mobile.sum() == 0 and env.paper.fixed.sum() == 0
         with pytest.raises(ValueError):
             env.step(np.full(ACTIONS, np.nan))
+    finally:
+        env.close()
+
+
+def test_raster_metric_detects_missing_and_displaced_ink():
+    from shodo.learning import raster_metrics
+
+    paper = Paper(seed=2)
+    target = np.c_[np.linspace(0.46, 0.54, 100), np.zeros(100)]
+    assert raster_metrics(paper, target)["raster_coverage_fraction"] == 0
+    paper.deposit(np.c_[target, np.zeros(100)], np.ones(100), 1.0, 10.0)
+    metrics = raster_metrics(paper, target)
+    assert metrics["raster_coverage_fraction"] > 0.99
+    assert metrics["raster_spill_fraction"] == 0
+    displaced = raster_metrics(paper, target + [0, 0.02])
+    assert displaced["raster_coverage_fraction"] == 0
+    assert displaced["raster_spill_fraction"] == 1
+
+
+def test_material_perturbation_keeps_target_and_updates_native_friction():
+    env = ShodoEnv(chars="一")
+    try:
+        env.reset(seed=1)
+        target = env.target_force.copy()
+        env.reset(seed=1, options={"material": {"normal_stiffness": 330.0, "friction": 0.4}})
+        np.testing.assert_array_equal(target, env.target_force)
+        assert env.brush.config.normal_stiffness == 330
+        assert env.brush.config.friction == 0.4
+    finally:
+        env.close()
+    config = SimConfig(timestep=0.0001, substeps=200, brush=free_hair_bundle())
+    env = ShodoEnv(chars="一", config=config)
+    try:
+        env.reset(seed=1, options={"material": {"friction": 0.3}})
+        geoms = list(env.brush.geom_bundle)
+        np.testing.assert_array_equal(env.model.geom_friction[geoms, 0], 0.3)
+        env.reset(seed=1)
+        np.testing.assert_array_equal(env.model.geom_friction[geoms, 0], config.brush.friction)
+        with pytest.raises(ValueError):
+            env.reset(options={"material": {"young_modulus": 1e6}})
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize("segments", [6, 12])
+def test_native_roots_have_no_unintended_handle_contact(segments):
+    config = SimConfig(
+        timestep=0.00005,
+        substeps=400,
+        brush=replace(free_hair_bundle(segments=segments), rod_tip_offset=0.001),
+    )
+    env = ShodoEnv(chars="一", config=config)
+    try:
+        env.reset(seed=1)
+        assert env.data.ncon == 0
+        for _ in range(3):
+            _, _, _, truncated, _ = env.step(env.expert())
+            assert not truncated
+        assert env.data.ncon == 0
     finally:
         env.close()

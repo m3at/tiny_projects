@@ -7,6 +7,7 @@ an immobile field. All coefficients are explicit, procedural material assumption
 
 import numpy as np
 from PIL import Image
+from scipy.ndimage import gaussian_filter
 
 from shodo.config import InkConfig
 
@@ -30,6 +31,18 @@ class Paper:
         self.bounds = None
 
     def deposit(self, positions, weights, water, pigment):
+        if not np.isfinite([water, pigment]).all() or water < 0 or pigment < 0:
+            raise ValueError("Deposited water and pigment must be finite and nonnegative")
+        positions, weights = np.asarray(positions), np.asarray(weights)
+        if len(positions) and (
+            positions.ndim != 2
+            or positions.shape[1] < 2
+            or weights.shape != (len(positions),)
+            or not np.isfinite(positions).all()
+            or not np.isfinite(weights).all()
+            or (weights < 0).any()
+        ):
+            raise ValueError("Expected finite contact positions and matching nonnegative weights")
         if not len(positions) or weights.sum() <= 0:
             return
         n = self.config.resolution
@@ -44,20 +57,32 @@ class Paper:
             return
         base = np.floor(uv).astype(int)
         fraction = uv - base
+        margin = int(np.ceil(3 * self.config.contact_sigma / self.dx))
+        box = np.array(
+            [
+                max(0, base[:, 1].min() - margin),
+                max(0, base[:, 0].min() - margin),
+                min(n, base[:, 1].max() + 2 + margin),
+                min(n, base[:, 0].max() + 2 + margin),
+            ]
+        )
+        y0, x0, y1, x1 = box
+        patch = np.zeros((y1 - y0, x1 - x0))
         for ox, oy in ((0, 0), (1, 0), (0, 1), (1, 1)):
             w = (
                 weights
                 * (fraction[:, 0] if ox else 1 - fraction[:, 0])
                 * (fraction[:, 1] if oy else 1 - fraction[:, 1])
             )
-            index = (base[:, 1] + oy, base[:, 0] + ox)
-            np.add.at(self.water, index, water * w)
-            np.add.at(self.mobile, index, pigment * w)
-        self.deposited_water += water * weights.sum()
-        self.deposited_pigment += pigment * weights.sum()
-        box = np.array(
-            [base[:, 1].min(), base[:, 0].min(), base[:, 1].max() + 2, base[:, 0].max() + 2]
+            index = (base[:, 1] - y0 + oy, base[:, 0] - x0 + ox)
+            np.add.at(patch, index, w)
+        patch = gaussian_filter(
+            patch, self.config.contact_sigma / self.dx, mode="constant", truncate=3
         )
+        self.water[y0:y1, x0:x1] += water * patch
+        self.mobile[y0:y1, x0:x1] += pigment * patch
+        self.deposited_water += water * patch.sum()
+        self.deposited_pigment += pigment * patch.sum()
         if self.bounds is None:
             self.bounds = box
         else:
@@ -80,12 +105,26 @@ class Paper:
         field[1:] -= vertical
 
     def advance(self, dt):
+        if not np.isfinite(dt) or dt < 0:
+            raise ValueError("Transport duration must be finite and nonnegative")
+        if dt == 0:
+            return
         self.elapsed += dt
         if self.bounds is None:
             return
         cfg = self.config
         # CFL positivity bound covers the largest heterogeneous diffusion coefficient.
-        substeps = max(1, int(np.ceil(dt * cfg.water_diffusion * 1.25 / (0.24 * self.dx**2))))
+        substeps = max(
+            1,
+            int(
+                np.ceil(
+                    dt
+                    * max(cfg.water_diffusion, cfg.pigment_diffusion)
+                    * 1.25
+                    / (0.24 * self.dx**2)
+                )
+            ),
+        )
         h = dt / substeps
         self.bounds[:2] = np.maximum(0, self.bounds[:2] - substeps)
         self.bounds[2:] = np.minimum(cfg.resolution, self.bounds[2:] + substeps)
