@@ -1,14 +1,15 @@
 .PHONY: setup data check train ppo residual evaluate demo validate benchmark mechanics figures build
 CHARS ?= 永
 STEPS ?= 32768
-RUN_DIR ?= runs/v2
+RUN_DIR ?= runs
 SEED ?= 7
 EPISODES ?= 28
 EPOCHS ?= 35
 POLICY ?= learned
-BASE_POLICY ?= runs/v2/bc.pt
+BASE_POLICY ?= runs/bc.pt
 REPEATS ?= 3
-COMMON = --run-dir "$(RUN_DIR)" --seed $(SEED) $(if $(CONFIG),--config "$(CONFIG)",)
+DEVICE ?= cpu
+COMMON = --run-dir "$(RUN_DIR)" --seed $(SEED) --device $(DEVICE) $(if $(CONFIG),--config "$(CONFIG)",)
 
 setup:
 	@if test -f uv.lock; then uv sync --locked; else uv sync; fi

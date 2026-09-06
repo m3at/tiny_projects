@@ -12,11 +12,21 @@ from shodo.config import SimConfig
 from shodo.data import TEST, TRAIN
 from shodo.env import ShodoEnv
 from shodo.learning import evaluate, load_policy, load_ppo, rollout, train
+from shodo.video import require_ffmpeg
 
 
 def validate(
-    directory, *, config=None, chars=TEST, seed=7, algorithm="learned", episodes=28, epochs=35
+    directory,
+    *,
+    config=None,
+    chars=TEST,
+    seed=7,
+    algorithm="learned",
+    episodes=28,
+    epochs=35,
+    device="cpu",
 ):
+    require_ffmpeg()
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     if not chars or set(chars) & set(TRAIN):
@@ -47,7 +57,12 @@ def validate(
     checkpoint = directory / "bc.pt"
     if algorithm == "learned" and not checkpoint.exists():
         train(
-            episodes=episodes, epochs=epochs, seed=seed, output=checkpoint, config=training_config
+            episodes=episodes,
+            epochs=epochs,
+            seed=seed,
+            output=checkpoint,
+            config=training_config,
+            device=device,
         )
     metadata_path = directory / ("bc.json" if algorithm == "learned" else "ppo.json")
     if metadata_path.exists():
@@ -61,6 +76,7 @@ def validate(
         config=config,
         chars=chars,
         seed=seed,
+        device=device,
     )
     checks = {"gymnasium_api": True}
     for name in ("expert", algorithm):
@@ -89,7 +105,11 @@ def validate(
     learned = np.mean([r["rmse_mm"] for r in results[algorithm]])
     zero = np.mean([r["rmse_mm"] for r in results["zero"]])
     checks["baseline_improvement_80pct"] = bool(learned < zero * 0.2)
-    policy = load_policy(checkpoint) if algorithm == "learned" else load_ppo(directory)
+    policy = (
+        load_policy(checkpoint, device=device)
+        if algorithm == "learned"
+        else load_ppo(directory, device=device)
+    )
     result = rollout(chars[0], policy, frames=True, config=config, seed=seed)
     checks["render_nonempty"] = bool(result[3] and np.asarray(result[3][-1]).std() > 10)
     save_rollout(directory / "validation-rollout", result)

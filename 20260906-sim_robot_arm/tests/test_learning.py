@@ -43,7 +43,7 @@ def test_invalid_learning_objective_is_rejected_before_output(tmp_path):
     assert not destination.exists()
 
 
-def test_resume_cannot_silently_change_legacy_reward_objective(tmp_path):
+def test_resume_cannot_silently_change_unspecified_reward_objective(tmp_path):
     metadata = {
         "observation_version": OBSERVATION_VERSION,
         "residual_scale": 0.0,

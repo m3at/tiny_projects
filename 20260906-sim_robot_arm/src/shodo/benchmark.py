@@ -12,7 +12,7 @@ from shodo.config import SimConfig
 from shodo.env import ShodoEnv
 
 
-def benchmark(output="runs/v2/benchmark.json", *, config=None, char="永", repeats=3):
+def benchmark(output="runs/benchmark.json", *, config=None, char="永", repeats=3, seed=7):
     if repeats < 1 or len(char) != 1:
         raise ValueError("Benchmark needs positive repeats and exactly one character")
     config = replace(config or SimConfig(), record=False)
@@ -20,7 +20,7 @@ def benchmark(output="runs/v2/benchmark.json", *, config=None, char="永", repea
     results = []
     try:
         for trial in range(repeats + 1):
-            env.reset(seed=7)
+            env.reset(seed=seed)
             steps, squared_error = 0, 0.0
             start = time.perf_counter()
             while True:
@@ -47,6 +47,7 @@ def benchmark(output="runs/v2/benchmark.json", *, config=None, char="永", repea
             "trials": results,
             "config": config.to_dict(),
             "char": char,
+            "seed": seed,
             "median_control_steps_s": float(np.median([r["control_steps_s"] for r in results])),
             "provenance": provenance(),
             "dofs": env.model.nv,

@@ -26,7 +26,7 @@ def main():
     for friction in (0.44, 0.66):
         cases[f"friction-{friction}"] = replace(base, brush=replace(base.brush, friction=friction))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path("runs/v2/native-audit"))
+    parser.add_argument("--output", type=Path, default=Path("runs/native-audit"))
     parser.add_argument("--chars", default=TEST)
     parser.add_argument("--cases", nargs="+", choices=list(cases), default=list(cases))
     args = parser.parse_args()

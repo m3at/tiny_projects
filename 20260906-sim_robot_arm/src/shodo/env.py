@@ -18,6 +18,7 @@ from shodo.robot import DOWN, Panda
 OBSERVATION_VERSION = 3
 OBSERVATIONS = 40
 ACTIONS = 6
+INK_LOAD_THRESHOLD = 1e-6  # N; unloaded geometric contact does not transfer ink.
 HISTORY_COLUMNS = [
     "tip_x",
     "tip_y",
@@ -46,9 +47,10 @@ HISTORY_COLUMNS = [
 
 @lru_cache(maxsize=256)
 def reference(char, paper_x=0.5, touchdown_speed=0.04):
+    """Read-only world XYZ, stroke IDs and world-axis tilt rotation vectors."""
     path, ids = trajectory(char, touchdown_speed)
     path = path.copy()
-    path[:, 0] += paper_x - 0.32
+    path[:, 0] += paper_x
     path = gaussian_filter1d(path, 1.2, axis=0, mode="nearest")
     velocity = np.gradient(path, axis=0)
     speed = np.linalg.norm(velocity[:, :2], axis=1)
@@ -56,6 +58,7 @@ def reference(char, paper_x=0.5, touchdown_speed=0.04):
     tilt = np.c_[-direction[:, 1] * 0.10, direction[:, 0] * 0.10, np.zeros(len(path))]
     tilt[ids < 0] = 0
     tilt = gaussian_filter1d(tilt, 4, axis=0, mode="nearest")
+    path.flags.writeable = tilt.flags.writeable = False
     return path, ids, tilt
 
 
@@ -89,7 +92,7 @@ class ShodoEnv(gym.Env):
         pose = self.pose
         if (
             self.stroke_ids[min(self.index, len(self.path) - 1)] >= 0
-            and self.brush.ink_loads.sum() > 1e-6
+            and self.brush.ink_loads.sum() > INK_LOAD_THRESHOLD
         ):
             pose[:2] = np.average(
                 self.brush.ink_positions[:, :2], axis=0, weights=self.brush.ink_loads
@@ -210,7 +213,7 @@ class ShodoEnv(gym.Env):
                 )
             load = self.brush.ink_loads
             total = load.sum()
-            if total > 1e-6:
+            if total > INK_LOAD_THRESHOLD:
                 wet = min(1.0, total / cfg.brush.transfer_load)
                 deposits.append(self.brush.ink_positions.copy())
                 masses.append(load * (cfg.timestep * wet / total))
@@ -224,7 +227,17 @@ class ShodoEnv(gym.Env):
                 cfg.brush.pigment_flow * supplied_time,
             )
         self.ink_clock += cfg.dt
-        if self.ink_clock >= cfg.ink.transport_dt - 1e-12 or self.index == len(self.path) - 1:
+        truncated = bool(
+            not np.isfinite(self.data.qpos).all()
+            or np.linalg.norm(self.data.qvel[:7]) > 100
+            or self.peak_force > 8.0
+            or (self.data.warning.number > 0).any()
+        )
+        if (
+            self.ink_clock >= cfg.ink.transport_dt - 1e-12
+            or self.index == len(self.path) - 1
+            or truncated
+        ):
             self.paper.advance(self.ink_clock)
             self.ink_clock = 0.0
         tracked = self.tracking_pose
@@ -258,12 +271,6 @@ class ShodoEnv(gym.Env):
             )
         self.index += 1
         terminated = self.index == len(self.path)
-        truncated = bool(
-            not np.isfinite(self.data.qpos).all()
-            or np.linalg.norm(self.data.qvel[:7]) > 100
-            or self.peak_force > 8.0
-            or (self.data.warning.number > 0).any()
-        )
         self.done = terminated or truncated
         return (
             self._obs(),

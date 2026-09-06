@@ -1,13 +1,16 @@
 import argparse
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 
 from shodo.artifacts import save_rollout
 from shodo.config import config_from_dict, load_config
 from shodo.data import TEST, TRAIN, fetch
+from shodo.device import resolve_device
 from shodo.learning import evaluate, load_policy, load_ppo, rollout, train
 from shodo.robot import fetch_robot
+from shodo.video import require_ffmpeg
 
 
 def main():
@@ -20,8 +23,14 @@ def main():
     )
     parser.add_argument("--steps", type=int, default=32768)
     parser.add_argument("--policy", default="learned", choices=["learned", "expert", "zero", "ppo"])
-    parser.add_argument("--run-dir", type=Path, default=Path("runs/v2"))
+    parser.add_argument("--run-dir", type=Path, default=Path("runs"))
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--device",
+        choices=["auto", "cpu", "cuda", "mps"],
+        default="cpu",
+        help="Neural controller device; auto prefers CUDA, then MPS, then CPU",
+    )
     parser.add_argument("--epochs", type=int, default=35)
     parser.add_argument("--episodes", type=int, default=28)
     parser.add_argument("--config", type=Path)
@@ -47,6 +56,23 @@ def main():
         parser.error(f"Invalid experiment configuration: {error}")
     if args.steps <= 0 or args.epochs <= 0 or args.episodes <= 0:
         parser.error("steps, epochs and episodes must be positive")
+    if args.command == "benchmark" and (args.repeats < 1 or len(args.chars or "永") != 1):
+        parser.error("benchmark requires positive --repeats and exactly one character")
+    if args.base_policy and not args.residual:
+        parser.error("--base-policy requires --residual")
+    if args.command in ("demo", "validate"):
+        try:
+            require_ffmpeg()
+        except RuntimeError as error:
+            parser.error(str(error))
+    if args.command in ("train", "ppo") or (
+        args.command in ("evaluate", "demo", "validate") and args.policy in ("learned", "ppo")
+    ):
+        try:
+            resolved = resolve_device(args.device)
+        except ValueError as error:
+            parser.error(str(error))
+        print(f"Neural controller device: {args.device} -> {resolved}; physics remains on CPU.")
     directory = args.run_dir
     directory.mkdir(parents=True, exist_ok=True)
     checkpoint = directory / "bc.pt"
@@ -77,25 +103,22 @@ def main():
             output=checkpoint,
             config=config,
             chars=args.chars or TRAIN,
+            device=args.device,
         )
     elif args.command == "evaluate":
-        filename = (
-            "evaluation.json" if args.policy == "learned" else f"evaluation-{args.policy}.json"
-        )
         evaluate(
-            directory / filename,
+            directory / f"evaluation-{args.policy}.json",
             checkpoint,
             algorithm=args.policy,
             config=config,
             chars=args.chars or TEST,
             seed=args.seed,
+            device=args.device,
         )
     elif args.command == "ppo":
         from shodo.rl import train_ppo
 
-        base = args.base_policy or checkpoint if args.residual else None
-        if args.base_policy and not args.residual:
-            parser.error("--base-policy requires --residual")
+        base = (args.base_policy or checkpoint) if args.residual else None
         train_ppo(
             directory,
             steps=args.steps,
@@ -105,15 +128,43 @@ def main():
             resume=args.resume,
             chars=args.chars or TRAIN,
             objective="ink" if args.ink_objective else "tracking",
+            device=args.device,
         )
     elif args.command == "demo":
-        policy = load_policy(checkpoint) if args.policy == "learned" else args.policy
+        policy = (
+            load_policy(checkpoint, device=args.device) if args.policy == "learned" else args.policy
+        )
         if args.policy == "ppo":
-            policy = load_ppo(directory)
-        for char in args.chars or "永":
+            policy = load_ppo(directory, device=args.device)
+        chars = args.chars or "永"
+        for index, char in enumerate(chars, 1):
+            start = time.perf_counter()
+            print(f"[{index}/{len(chars)}] Drawing {char} ({args.policy})…", flush=True)
             result = rollout(char, policy, seed=args.seed, frames=True, config=config)
-            save_rollout(directory / f"{ord(char):05x}-{args.policy}", result)
-            print(json.dumps(result[0], ensure_ascii=False))
+            base = directory / f"{ord(char):05x}-{args.policy}"
+            print("  Encoding MP4…", flush=True)
+            try:
+                save_rollout(base, result)
+            except (OSError, RuntimeError, ValueError) as error:
+                parser.exit(1, f"Demo export failed: {error}\n")
+            metrics = result[0]
+            ink = metrics["ink_rmse_mm"]
+            ink_label = "no loaded ink" if ink is None else f"ink error {ink:.3f} mm"
+            status = "TRUNCATED" if metrics["truncated"] else "Complete"
+            simulated = (
+                metrics["steps"] * metrics["config"]["timestep"] * metrics["config"]["substeps"]
+            )
+            video = Path(f"{base}.mp4").resolve()
+            print(
+                f"  {status} · {simulated:.2f}s simulated · {ink_label} · "
+                f"peak force {metrics['max_force_n']:.3f} N · "
+                f"{time.perf_counter() - start:.1f}s elapsed\n"
+                f"  Video: {video} ({video.stat().st_size / 1024**2:.2f} MiB)\n"
+                f"  Ink:   {Path(f'{base}.png').resolve()}\n"
+                f"  Metrics: {base}.json\n"
+                f"  Motion:  {base}.npz",
+                flush=True,
+            )
     elif args.command == "validate":
         from shodo.validation import validate
 
@@ -125,6 +176,7 @@ def main():
             algorithm=args.policy,
             episodes=args.episodes,
             epochs=args.epochs,
+            device=args.device,
         )
     elif args.command == "benchmark":
         from shodo.benchmark import benchmark
@@ -134,6 +186,7 @@ def main():
             config=config,
             char=args.chars or "永",
             repeats=args.repeats,
+            seed=args.seed,
         )
 
 

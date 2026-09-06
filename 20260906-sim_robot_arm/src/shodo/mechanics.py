@@ -94,7 +94,7 @@ def cantilever(
     return report, np.asarray(history)
 
 
-def audit(output="runs/v2/mechanics"):
+def audit(output="runs/mechanics"):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     results, curves = [], {}

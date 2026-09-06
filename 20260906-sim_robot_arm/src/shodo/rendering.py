@@ -26,7 +26,9 @@ class Renderer:
     def frame(self, env):
         self.gl.make_current()
         paper = env.paper.image()
-        texture = np.asarray(paper.resize((256, 256)))[::-1]
+        # MuJoCo's box top maps texture rows toward -world Y, like Paper.image().
+        # Only the framebuffer readback below needs an OpenGL bottom-up flip.
+        texture = np.asarray(paper.resize((256, 256)))
         texid = self.model.texture("ink").id
         start = self.model.tex_adr[texid]
         self.model.tex_data[start : start + texture.size] = texture.ravel()

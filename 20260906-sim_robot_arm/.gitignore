@@ -6,5 +6,4 @@ data/
 runs/
 *.egg-info/
 dist/
-# No need to save the lock during the current experimental phase
 uv.lock

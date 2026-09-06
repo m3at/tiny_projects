@@ -50,7 +50,7 @@ class Paper:
         uv = (
             positions[:, :2] - [self.center_x - self.config.extent / 2, -self.config.extent / 2]
         ) / self.dx - 0.5
-        inside = (uv[:, 0] >= 0) & (uv[:, 0] < n - 1) & (uv[:, 1] >= 0) & (uv[:, 1] < n - 1)
+        inside = ((uv >= -0.5) & (uv <= n - 0.5)).all(axis=1)
         weights = weights / weights.sum()
         uv, weights = uv[inside], weights[inside]
         if not len(uv):
@@ -58,15 +58,17 @@ class Paper:
         base = np.floor(uv).astype(int)
         fraction = uv - base
         margin = int(np.ceil(3 * self.config.contact_sigma / self.dx))
-        box = np.array(
+        # Build the complete footprint before clipping it to the paper. Clipping
+        # the bilinear splat first would discard mass twice near an edge.
+        footprint = np.array(
             [
-                max(0, base[:, 1].min() - margin),
-                max(0, base[:, 0].min() - margin),
-                min(n, base[:, 1].max() + 2 + margin),
-                min(n, base[:, 0].max() + 2 + margin),
+                base[:, 1].min() - margin,
+                base[:, 0].min() - margin,
+                base[:, 1].max() + 2 + margin,
+                base[:, 0].max() + 2 + margin,
             ]
         )
-        y0, x0, y1, x1 = box
+        y0, x0, y1, x1 = footprint
         patch = np.zeros((y1 - y0, x1 - x0))
         for ox, oy in ((0, 0), (1, 0), (0, 1), (1, 1)):
             w = (
@@ -79,6 +81,10 @@ class Paper:
         patch = gaussian_filter(
             patch, self.config.contact_sigma / self.dx, mode="constant", truncate=3
         )
+        box = np.clip(footprint, 0, n)
+        by0, bx0, by1, bx1 = box
+        patch = patch[by0 - y0 : by1 - y0, bx0 - x0 : bx1 - x0]
+        y0, x0, y1, x1 = box
         self.water[y0:y1, x0:x1] += water * patch
         self.mobile[y0:y1, x0:x1] += pigment * patch
         self.deposited_water += water * patch.sum()

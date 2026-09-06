@@ -15,7 +15,8 @@ from torch import nn
 from shodo.artifacts import provenance, snapshot_source
 from shodo.config import SimConfig
 from shodo.data import TEST, TRAIN
-from shodo.env import ACTIONS, OBSERVATION_VERSION, OBSERVATIONS, ShodoEnv
+from shodo.device import resolve_device
+from shodo.env import ACTIONS, INK_LOAD_THRESHOLD, OBSERVATION_VERSION, OBSERVATIONS, ShodoEnv
 
 
 def network():
@@ -29,24 +30,30 @@ def network():
     )
 
 
-def load_policy(file="runs/v2/bc.pt"):
-    model = network()
+def load_policy(file="runs/bc.pt", *, device="cpu"):
+    resolved = resolve_device(device)
+    model = network().to(resolved)
     checkpoint = torch.load(file, map_location="cpu", weights_only=True)
     if checkpoint.get("observation_version") != OBSERVATION_VERSION:
-        raise ValueError("Checkpoint contract is obsolete; retrain into runs/v2")
+        raise ValueError("Checkpoint observation contract is incompatible; retrain the policy")
     model.load_state_dict(checkpoint["state_dict"])
     model.eval()
 
     def predict(obs):
         with torch.no_grad():
-            return model(torch.as_tensor(obs)).numpy()
+            return model(torch.as_tensor(obs, device=resolved)).cpu().numpy()
 
+    predict.device = str(resolved)
+    predict.requested_device = device
     return predict
 
 
-def train(episodes=28, epochs=35, seed=7, output="runs/v2/bc.pt", config=None, chars=TRAIN):
+def train(
+    episodes=28, epochs=35, seed=7, output="runs/bc.pt", config=None, chars=TRAIN, device="cpu"
+):
     if episodes <= 0 or epochs <= 0 or not chars:
         raise ValueError("Positive episode/epoch counts and training characters are required")
+    resolved = resolve_device(device)
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
     config = replace(config or SimConfig(randomize=True), record=False)
@@ -54,11 +61,12 @@ def train(episodes=28, epochs=35, seed=7, output="runs/v2/bc.pt", config=None, c
         metadata = {
             "provenance": provenance(),
             "source_snapshot": snapshot_source(path.parent, "bc"),
+            "device": {"requested": device, "resolved": str(resolved)},
         }
-        return _train(episodes, epochs, seed, path, config, chars, metadata)
+        return _train(episodes, epochs, seed, path, config, chars, metadata, resolved)
 
 
-def _train(episodes, epochs, seed, path, config, chars, metadata):
+def _train(episodes, epochs, seed, path, config, chars, metadata, device):
     start = time.perf_counter()
     torch.set_num_threads(1)
     torch.manual_seed(seed)
@@ -82,11 +90,12 @@ def _train(episodes, epochs, seed, path, config, chars, metadata):
                 print(f"episodes={episode + 1}/{episodes} labels={len(actions)}", flush=True)
     finally:
         env.close()
-    x, y = torch.tensor(np.asarray(observations)), torch.tensor(np.asarray(actions))
-    model = network()
+    x = torch.tensor(np.asarray(observations), device=device)
+    y = torch.tensor(np.asarray(actions), device=device)
+    model = network().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.002)
     for epoch in range(epochs):
-        indices = torch.randperm(len(x))
+        indices = torch.randperm(len(x), device=device)
         for batch in indices.split(256):
             loss = nn.functional.mse_loss(model(x[batch]), y[batch])
             optimizer.zero_grad()
@@ -96,7 +105,11 @@ def _train(episodes, epochs, seed, path, config, chars, metadata):
             print(f"epoch={epoch + 1} mse={loss.item():.6f}", flush=True)
     temporary = path.with_suffix(".pending.pt")
     torch.save(
-        {"state_dict": model.state_dict(), "observation_version": OBSERVATION_VERSION}, temporary
+        {
+            "state_dict": {key: value.cpu() for key, value in model.state_dict().items()},
+            "observation_version": OBSERVATION_VERSION,
+        },
+        temporary,
     )
     temporary.replace(path)
     metadata = {
@@ -122,9 +135,13 @@ def _train(episodes, epochs, seed, path, config, chars, metadata):
 def rollout(char, policy="expert", seed=17, frames=False, config=None, material=None):
     env = ShodoEnv(chars=char, config=replace(config or SimConfig(), record=True))
     images = []
+    frame_times = []
     total_reward = 0
     try:
         obs, _ = env.reset(seed=seed, options={"material": material or {}})
+        if frames:
+            images.append(Image.fromarray(env.render()))
+            frame_times.append(float(env.data.time))
         while True:
             if policy == "expert":
                 action = env.expert()
@@ -134,17 +151,22 @@ def rollout(char, policy="expert", seed=17, frames=False, config=None, material=
                 action = policy(obs)
             obs, reward, terminated, truncated, _ = env.step(action)
             total_reward += reward
-            if frames and (env.index % 5 == 0 or terminated):
+            if frames and (env.index % 5 == 0 or terminated or truncated):
                 images.append(Image.fromarray(env.render()))
+                frame_times.append(float(env.data.time))
             if terminated or truncated:
                 break
         history = np.asarray(env.history)
         errors = np.linalg.norm(np.c_[history[:, 20:22], history[:, 2]] - history[:, 3:6], axis=1)
         down = history[:, 13] >= 0
-        contact = down & (history[:, 17] > 0)
+        contact = down & (history[:, 14] > INK_LOAD_THRESHOLD)
         lifted = history[:, 5] > 0.015
         metrics = {
             "char": char,
+            "policy_device": {
+                "requested": getattr(policy, "requested_device", "cpu"),
+                "resolved": getattr(policy, "device", "cpu"),
+            },
             "seed": seed,
             "steps": len(history),
             "rmse_mm": float(np.sqrt(np.mean(errors**2)) * 1000),
@@ -183,6 +205,8 @@ def rollout(char, policy="expert", seed=17, frames=False, config=None, material=
             "config": env.config.to_dict(),
             "actual_brush": asdict(env.brush.config),
         }
+        if frames:
+            metrics["frame_times_s"] = frame_times
         return metrics, history, env.paper.image(), images
     finally:
         env.close()
@@ -219,26 +243,27 @@ def raster_metrics(paper, target_xy):
     }
 
 
-def load_ppo(directory="runs/v2"):
+def load_ppo(directory="runs", *, device="cpu"):
     from shodo.rl import load_controller
 
-    return load_controller(directory)
+    return load_controller(directory, device=device)
 
 
 def evaluate(
-    output="runs/v2/evaluation.json",
-    checkpoint="runs/v2/bc.pt",
+    output="runs/evaluation-learned.json",
+    checkpoint="runs/bc.pt",
     algorithm="learned",
     config=None,
     chars=TEST,
     seed=17,
+    device="cpu",
 ):
     if not chars:
         raise ValueError("Evaluation needs at least one character")
     if algorithm == "learned":
-        policy = load_policy(checkpoint)
+        policy = load_policy(checkpoint, device=device)
     elif algorithm == "ppo":
-        policy = load_ppo(Path(checkpoint).parent)
+        policy = load_ppo(Path(checkpoint).parent, device=device)
     elif algorithm in ("expert", "zero"):
         policy = algorithm
     else:

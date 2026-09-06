@@ -12,7 +12,7 @@ from shodo.learning import rollout
 
 
 def main():
-    output = Path("runs/v2/reduced-audit")
+    output = Path("runs/reduced-audit")
     output.mkdir(parents=True, exist_ok=True)
     report = {
         "status": "running",

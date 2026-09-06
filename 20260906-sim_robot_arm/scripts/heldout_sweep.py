@@ -19,7 +19,7 @@ from shodo.learning import load_policy, load_ppo, rollout
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--count", type=int, default=128)
-    parser.add_argument("--output", type=Path, default=Path("runs/v2/heldout-sweep"))
+    parser.add_argument("--output", type=Path, default=Path("runs/heldout-sweep"))
     parser.add_argument(
         "--policies",
         nargs="+",
@@ -47,12 +47,12 @@ def main():
     chars = TEST + "".join(rng.choice(candidates, size=args.count, replace=False))
     args.output.mkdir(parents=True, exist_ok=True)
     checkpoints = {
-        "bc": Path("runs/v2/bc.pt"),
-        "ppo": Path("runs/v2/ppo-seed7/ppo.zip"),
-        "residual": Path("runs/v2/residual-seed7/ppo.zip"),
-        "pressure-residual": Path("runs/v2/pressure-residual/ppo.zip"),
-        "ink-residual": Path("runs/v2/ink-residual/ppo.zip"),
-        "pressure-ink-residual": Path("runs/v2/pressure-ink-residual/ppo.zip"),
+        "bc": Path("runs/bc.pt"),
+        "ppo": Path("runs/ppo-seed7/ppo.zip"),
+        "residual": Path("runs/residual-seed7/ppo.zip"),
+        "pressure-residual": Path("runs/pressure-residual/ppo.zip"),
+        "ink-residual": Path("runs/ink-residual/ppo.zip"),
+        "pressure-ink-residual": Path("runs/pressure-ink-residual/ppo.zip"),
     }
     checkpoints = {k: v for k, v in checkpoints.items() if k in args.policies}
     metadata = {

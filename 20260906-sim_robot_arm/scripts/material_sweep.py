@@ -17,7 +17,7 @@ from shodo.learning import load_policy, load_ppo, rollout
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path("runs/v2/material-sweep"))
+    parser.add_argument("--output", type=Path, default=Path("runs/material-sweep"))
     parser.add_argument(
         "--policies",
         nargs="+",
@@ -45,12 +45,12 @@ def main():
         "description": "Actual stiffness/friction varied; nominal reference force is unchanged",
     }
     checkpoints = {
-        "bc": Path("runs/v2/bc.pt"),
-        "residual": Path("runs/v2/residual-seed7/ppo.zip"),
-        "pressure-bc": Path("runs/v2/pressure/bc.pt"),
-        "pressure-residual": Path("runs/v2/pressure-residual/ppo.zip"),
-        "ink-residual": Path("runs/v2/ink-residual/ppo.zip"),
-        "pressure-ink-residual": Path("runs/v2/pressure-ink-residual/ppo.zip"),
+        "bc": Path("runs/bc.pt"),
+        "residual": Path("runs/residual-seed7/ppo.zip"),
+        "pressure-bc": Path("runs/pressure/bc.pt"),
+        "pressure-residual": Path("runs/pressure-residual/ppo.zip"),
+        "ink-residual": Path("runs/ink-residual/ppo.zip"),
+        "pressure-ink-residual": Path("runs/pressure-ink-residual/ppo.zip"),
     }
     policies = {}
     for name in dict.fromkeys(args.policies):

@@ -19,7 +19,8 @@ from stable_baselines3.common.monitor import Monitor
 from shodo.artifacts import provenance, snapshot_source
 from shodo.config import SimConfig, config_from_dict
 from shodo.data import TRAIN
-from shodo.env import ACTIONS, OBSERVATION_VERSION, OBSERVATIONS, ShodoEnv
+from shodo.device import resolve_device
+from shodo.env import ACTIONS, INK_LOAD_THRESHOLD, OBSERVATION_VERSION, OBSERVATIONS, ShodoEnv
 from shodo.learning import load_policy
 
 
@@ -35,7 +36,7 @@ class InkObjective(gym.Wrapper):
         env = self.unwrapped
         i = env.index - 1
         loads = env.brush.ink_loads
-        if env.stroke_ids[i] >= 0 and loads.sum() > 1e-6:
+        if env.stroke_ids[i] >= 0 and loads.sum() > INK_LOAD_THRESHOLD:
             center = np.average(env.brush.ink_positions[:, :2], axis=0, weights=loads)
             error = float(np.linalg.norm(center - env.path[i, :2]))
             reward += 0.65 * np.exp(-((error / 0.002) ** 2))
@@ -105,11 +106,13 @@ def train_ppo(
     resume=False,
     chars=TRAIN,
     objective="tracking",
+    device="cpu",
 ):
     if steps <= 0 or not chars:
         raise ValueError("Positive step count and training characters are required")
     if objective not in ("tracking", "ink"):
         raise ValueError("PPO objective must be tracking or ink")
+    resolved = resolve_device(device)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     torch.set_num_threads(1)
@@ -124,6 +127,7 @@ def train_ppo(
             "residual_scale": 0.3 if base_checkpoint is not None else 0.0,
             "objective": objective,
             "provenance": provenance(),
+            "device": {"requested": device, "resolved": str(resolved)},
         }
         if base_checkpoint is not None:
             base_checkpoint = Path(base_checkpoint)
@@ -157,17 +161,17 @@ def train_ppo(
             local_base = directory / "bc.pt"
             if base_checkpoint.resolve() != local_base.resolve():
                 shutil.copyfile(base_checkpoint, local_base)
-            env = ResidualControl(env, load_policy(local_base))
+            env = ResidualControl(env, load_policy(local_base, device=device))
         env = Monitor(env, str(directory / "ppo-monitor.csv"), override_existing=not resume)
         try:
             if resume:
-                model = PPO.load(directory / "ppo", env=env, device="cpu")
+                model = PPO.load(directory / "ppo", env=env, device=resolved)
             else:
                 model = PPO(
                     "MlpPolicy",
                     env,
                     seed=seed,
-                    device="cpu",
+                    device=resolved,
                     verbose=0,
                     n_steps=2048,
                     batch_size=256,
@@ -181,12 +185,13 @@ def train_ppo(
             env.close()
 
 
-def load_controller(directory):
+def load_controller(directory, *, device="cpu"):
+    resolved = resolve_device(device)
     directory = Path(directory)
     metadata = json.loads((directory / "ppo.json").read_text())
     if metadata.get("observation_version") != OBSERVATION_VERSION:
-        raise ValueError("PPO observation contract is obsolete; retrain")
-    model = PPO.load(directory / "ppo", device="cpu")
+        raise ValueError("PPO observation contract is incompatible; retrain the policy")
+    model = PPO.load(directory / "ppo", device=resolved)
     if model.observation_space.shape != (OBSERVATIONS,) or model.action_space.shape != (ACTIONS,):
         raise ValueError("PPO shape mismatch")
     scale = metadata.get("residual_scale", 0.0)
@@ -195,10 +200,12 @@ def load_controller(directory):
         checkpoint = directory / "bc.pt"
         if hashlib.sha256(checkpoint.read_bytes()).hexdigest() != metadata["base_sha256"]:
             raise ValueError("Residual base controller does not match the training checkpoint")
-        base = load_policy(checkpoint)
+        base = load_policy(checkpoint, device=device)
 
     def predict(observation):
         action = model.predict(observation, deterministic=True)[0]
         return np.clip(base(observation) + scale * action, -1, 1) if base else action
 
+    predict.device = str(resolved)
+    predict.requested_device = device
     return predict

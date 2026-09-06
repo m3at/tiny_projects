@@ -11,7 +11,8 @@ from shodo.learning import rollout
 
 
 def main():
-    output = Path("runs/v2/contact-sweep.json")
+    output = Path("runs/contact-sweep.json")
+    output.parent.mkdir(parents=True, exist_ok=True)
     config = load_config(Path("experiments/cable.toml"))
     report = {"provenance": provenance(), "status": "running", "results": []}
     for curve in (0.0, 0.0005, 0.001, 0.002):

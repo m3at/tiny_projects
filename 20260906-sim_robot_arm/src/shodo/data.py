@@ -67,7 +67,8 @@ def _fetch(root):
 
 
 @lru_cache(maxsize=256)
-def strokes(char: str, root: Path = DATA) -> list[np.ndarray]:
+def strokes(char: str, root: Path = DATA) -> tuple[np.ndarray, ...]:
+    """Read-only paper-local XY in meters, centered at zero; X right and Y up."""
     if len(char) != 1:
         raise ValueError("Expected exactly one character")
     file = root / f"{ord(char):05x}.svg"
@@ -93,16 +94,20 @@ def strokes(char: str, root: Path = DATA) -> list[np.ndarray]:
         points = np.c_[
             np.interp(samples, distance, dense.real), np.interp(samples, distance, dense.imag)
         ]
-        points = (points / 109 - 0.5) * np.array([0.18, -0.18]) + [0.32, 0]
+        points = (points / 109 - 0.5) * np.array([0.18, -0.18])
+        points.flags.writeable = False
         result.append(points)
     if not result:
         raise ValueError(f"No strokes found in {file}")
-    return result
+    return tuple(result)
 
 
 @lru_cache(maxsize=256)
 def trajectory(char: str, touchdown_speed: float = 0.04) -> tuple[np.ndarray, np.ndarray]:
-    """Reference at 50 Hz: lift, travel, lower, draw, lift; stroke IDs -1 in air."""
+    """Paper-local XYZ at 50 Hz; Z is height above the paper, stroke IDs -1 in air.
+
+    Each stroke follows lift, travel, lower, draw and lift phases.
+    """
     paths = strokes(char)
     points, ids = [], []
     previous = np.r_[paths[0][0], 0.025]
@@ -126,4 +131,6 @@ def trajectory(char: str, touchdown_speed: float = 0.04) -> tuple[np.ndarray, np
             depth = 0.001 + 0.003 * max(0.0, np.sin(np.pi * j / (len(path) - 1))) ** 0.7
             segment(np.r_[point, -depth], i)
         segment(np.r_[path[-1], 0.025], -1, 0.0008)
-    return np.asarray(points), np.asarray(ids)
+    points, ids = np.asarray(points), np.asarray(ids)
+    points.flags.writeable = ids.flags.writeable = False
+    return points, ids

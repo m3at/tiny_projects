@@ -11,9 +11,12 @@ from shodo.data import DATA, strokes, trajectory
 
 
 def main():
+    files = sorted(DATA.glob("*.svg"))
+    if not files:
+        raise RuntimeError("No KanjiVG SVGs found; run make data before auditing")
     rows, failures = [], []
     start = time.perf_counter()
-    for file in sorted(DATA.glob("*.svg")):
+    for file in files:
         char = chr(int(file.stem, 16))
         try:
             path, ids = trajectory(char)
@@ -54,11 +57,11 @@ def main():
         "seconds": time.perf_counter() - start,
         "provenance": provenance(),
     }
-    Path("runs/v2/dataset-audit.json").write_text(
-        json.dumps(report, indent=2, ensure_ascii=False) + "\n"
-    )
+    output = Path("runs/dataset-audit.json")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     if failures:
-        raise RuntimeError(f"{len(failures)} dataset failures; see runs/v2/dataset-audit.json")
+        raise RuntimeError(f"{len(failures)} dataset failures; see runs/dataset-audit.json")
 
 
 if __name__ == "__main__":

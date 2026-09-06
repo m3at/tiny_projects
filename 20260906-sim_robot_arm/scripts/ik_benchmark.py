@@ -60,7 +60,7 @@ def main():
         "provenance": provenance(),
         "results": results,
     }
-    output = Path("runs/v2/ik-benchmark.json")
+    output = Path("runs/ik-benchmark.json")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(results, indent=2))

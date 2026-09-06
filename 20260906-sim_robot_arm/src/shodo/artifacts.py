@@ -13,6 +13,7 @@ import numpy as np
 from shodo.data import SHA256, TEST, TRAIN
 from shodo.env import HISTORY_COLUMNS
 from shodo.robot import REVISION
+from shodo.video import FINAL_HOLD, save_video
 
 _ROOT = Path(__file__).parent
 # Capture once: a long-running experiment must not report later edits as its source.
@@ -70,9 +71,13 @@ def snapshot_source(directory, label):
 
 
 def save_rollout(base, result):
+    """Save executed states at their simulation timestamps, then hold the final frame 100 ms."""
     metrics, history, paper, frames = result
     base = Path(base)
     base.parent.mkdir(parents=True, exist_ok=True)
+    if frames:
+        video = save_video(Path(f"{base}.mp4"), frames, metrics.get("frame_times_s"))
+        metrics = {**metrics, "recording_final_hold_s": FINAL_HOLD, "video": video}
     # `base` is an experiment identifier, not a filename with an extension.
     # Decimal parameters (e.g. dt-0.0001) must survive artifact suffixes.
     paper.save(Path(f"{base}.png"))
@@ -83,9 +88,6 @@ def save_rollout(base, result):
     )
     if frames:
         frames[-1].save(Path(f"{base}-scene.png"))
-        frames[0].save(
-            Path(f"{base}.gif"), save_all=True, append_images=frames[1:], duration=100, loop=0
-        )
     Path(f"{base}.json").write_text(
         json.dumps(
             {
