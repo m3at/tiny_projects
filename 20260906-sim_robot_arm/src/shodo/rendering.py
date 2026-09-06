@@ -23,7 +23,8 @@ class Renderer:
         self.rect = mujoco.MjrRect(0, 0, 640, 480)
         self.rgb = np.empty((480, 640, 3), dtype=np.uint8)
 
-    def frame(self, env):
+    def camera_frame(self, env):
+        """Raw perspective RGB, with no diagnostics or privileged paper inset."""
         self.gl.make_current()
         paper = env.paper.image()
         # MuJoCo's box top maps texture rows toward -world Y, like Paper.image().
@@ -58,8 +59,13 @@ class Renderer:
             self.scene.ngeom += 1
         mujoco.mjr_render(self.rect, self.scene, self.context)
         mujoco.mjr_readPixels(self.rgb, None, self.rect, self.context)
+        return self.rgb[::-1].copy()
+
+    def frame(self, env):
+        rgb = self.camera_frame(env)
+        paper = env.paper.image()
         canvas = Image.new("RGB", (960, 480), (32, 37, 43))
-        canvas.paste(Image.fromarray(self.rgb[::-1]), (0, 0))
+        canvas.paste(Image.fromarray(rgb), (0, 0))
         canvas.paste(paper.resize((300, 300)), (650, 95))
         draw = ImageDraw.Draw(canvas)
         draw.text((18, 18), "FRANKA PANDA / ELASTIC BRUSH", fill="white")
@@ -75,6 +81,31 @@ class Renderer:
             fill="white",
         )
         return np.asarray(canvas)
+
+    def camera_metadata(self):
+        """Pinhole calibration of the last raw monoscopic free-camera frame.
+
+        Camera coordinates are X right, Y down, Z forward. Integer pixel centers
+        use the same top-row-first convention as camera_frame().
+        """
+        camera = mujoco.mjv_averageCamera(*self.scene.camera)
+        forward = np.asarray(camera.forward, dtype=float)
+        forward /= np.linalg.norm(forward)
+        right = np.cross(forward, camera.up)
+        right /= np.linalg.norm(right)
+        down = np.cross(forward, right)
+        transform = np.eye(4)
+        transform[:3, :3] = np.stack([right, down, forward])
+        transform[:3, 3] = -transform[:3, :3] @ camera.pos
+        height, width = self.rgb.shape[:2]
+        focal = height * camera.frustum_near / (camera.frustum_top - camera.frustum_bottom)
+        return {
+            "intrinsics": [[focal, 0, (width - 1) / 2], [0, focal, (height - 1) / 2], [0, 0, 1]],
+            "world_to_camera": transform.tolist(),
+            "pixel_convention": "integer pixel centers; top-left=(0,0); X right, Y down",
+            "camera_axes": "X right, Y down, Z forward",
+            "distortion": "none (synthetic perspective renderer)",
+        }
 
     def close(self):
         self.gl.make_current()

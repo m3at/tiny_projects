@@ -23,10 +23,15 @@ def test_deposited_ink_matches_world_coordinates_in_both_views(position):
         renderer.options.geomgroup[5] = 1
         env.model.geom_group[env.model.geom("paper").id] = 5
         frame = renderer.frame(env)
+        calibration = renderer.camera_metadata()
+        camera_point = np.asarray(calibration["world_to_camera"]) @ [*position, 0, 1]
+        projected = np.asarray(calibration["intrinsics"]) @ camera_point[:3]
+        projected = projected[:2] / projected[2]
         scale = 480 / (2 * 0.55 * np.tan(np.deg2rad(env.model.vis.global_.fovy / 2)))
         world_pixel = np.array([320, 240]) + scale * np.array(
             [position[0] - env.paper.center_x, -position[1]]
         )
+        np.testing.assert_allclose(projected, world_pixel - 0.5, atol=0.001)
         image_pixel = np.array([800, 245]) + 300 / env.paper.config.extent * np.array(
             [position[0] - env.paper.center_x, -position[1]]
         )

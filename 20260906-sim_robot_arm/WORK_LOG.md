@@ -2,7 +2,7 @@
 
 ## Working model
 
-The headless laboratory couples a torque-driven seven-joint Panda to either elastic/frictional bristle bundles or native MuJoCo cable rods, with conservative water/mobile/fixed-pigment transport. Policies control six Cartesian pose increments using 40 observations; checkpoint observation contract is 3. Only reset sets joint positions directly.
+The headless laboratory couples a torque-driven seven-joint Panda to either elastic/frictional bristle bundles or native MuJoCo cable rods, with conservative water/mobile/fixed-pigment transport. Policies control six Cartesian pose increments. The privileged benchmark uses 40 observations (contract 3); opt-in sensor policies use histories of 39 measured/reference features (sensor contract 1). Only reset sets joint positions directly.
 
 ## Evidence and reproduction
 
@@ -16,7 +16,9 @@ The completed audit covers 5,460 broader-cohort episodes, 800 plant-only materia
 - Keep source and documentation focused on the current model. Git provides source history; `runs/` contains descriptive experiment outputs, not versioned source trees.
 - Run `make check` and `make validate` after simulation changes. Add focused invariant or integration tests for corrections; numerical agreement alone cannot validate visual representation.
 - Record configuration, seeds, dependencies and source/checkpoint hashes with scientific results. Do not imply that a changed renderer or controller has rerun the broad numerical study unless it has.
+- Keep sensor actors separate from privileged teacher/evaluation channels. Record aligned policy episodes independently of demonstration movies, and use paired calibration/sensing stress cases without implying measured hardware distributions.
 - Default to headless operation. Measure throughput without competing jobs and distinguish component microbenchmarks from whole-simulator performance.
+- Keep SmolVLA's optional locked stack independent of the small-policy baseline. Reuse native recordings for causal, memory-mapped training inputs; keep counterfactual recovery targets separate from executed actions, preserve warm-start split lineage and adapter reload checks, and distinguish recorded-state accuracy, closed-loop drawing quality and real-time deadlines.
 
 ## Physical limits
 

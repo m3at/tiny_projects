@@ -18,10 +18,24 @@ from stable_baselines3.common.monitor import Monitor
 
 from shodo.artifacts import provenance, snapshot_source
 from shodo.config import SimConfig, config_from_dict
+from shodo.contracts import SENSOR_FEATURES, SensorConfig, sensor_contract
 from shodo.data import TRAIN
 from shodo.device import resolve_device
 from shodo.env import ACTIONS, INK_LOAD_THRESHOLD, OBSERVATION_VERSION, OBSERVATIONS, ShodoEnv
 from shodo.learning import load_policy
+
+
+def _sensors_from_metadata(metadata):
+    settings = metadata.get("sensors")
+    sensors = SensorConfig(**settings) if settings is not None else None
+    if metadata.get("sensor_contract") != (sensor_contract(sensors) if sensors else None):
+        raise ValueError("PPO sensor contract is incompatible; retrain the policy")
+    return sensors
+
+
+def _check_base_sensors(base, sensors):
+    if getattr(base, "sensor_config", None) != sensors:
+        raise ValueError("Residual base sensor configuration must match PPO training sensors")
 
 
 class InkObjective(gym.Wrapper):
@@ -107,12 +121,19 @@ def train_ppo(
     chars=TRAIN,
     objective="tracking",
     device="cpu",
+    sensors=None,
 ):
     if steps <= 0 or not chars:
         raise ValueError("Positive step count and training characters are required")
     if objective not in ("tracking", "ink"):
         raise ValueError("PPO objective must be tracking or ink")
+    if sensors is not None and not isinstance(sensors, SensorConfig):
+        raise TypeError("sensors must be a SensorConfig or None")
     resolved = resolve_device(device)
+    base = None
+    if base_checkpoint is not None:
+        base = load_policy(base_checkpoint, device=device)
+        _check_base_sensors(base, sensors)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     torch.set_num_threads(1)
@@ -123,6 +144,8 @@ def train_ppo(
             "requested_steps": steps,
             "train_chars": chars,
             "observation_version": OBSERVATION_VERSION,
+            "sensors": sensors.to_dict() if sensors else None,
+            "sensor_contract": sensor_contract(sensors) if sensors else None,
             "config": config.to_dict(),
             "residual_scale": 0.3 if base_checkpoint is not None else 0.0,
             "objective": objective,
@@ -137,6 +160,8 @@ def train_ppo(
             previous["config"] = config_from_dict(previous["config"]).to_dict()
             previous.setdefault("train_chars", TRAIN)
             previous.setdefault("objective", "tracking")
+            previous_sensors = _sensors_from_metadata(previous)
+            previous["sensors"] = previous_sensors.to_dict() if previous_sensors else None
             for key in (
                 "observation_version",
                 "residual_scale",
@@ -145,6 +170,8 @@ def train_ppo(
                 "seed",
                 "train_chars",
                 "objective",
+                "sensors",
+                "sensor_contract",
             ):
                 if previous.get(key) != metadata.get(key):
                     raise ValueError(f"Cannot resume after changing {key}; use a new run directory")
@@ -154,14 +181,19 @@ def train_ppo(
                 "optimizer/checkpoint continuation; environment and RNG are not a bitwise replay"
             )
         metadata["source_snapshot"] = snapshot_source(directory, "ppo")
-        env = ShodoEnv(chars=chars, config=config)
+        if sensors is not None:
+            from shodo.runtime import SensorEnv
+
+            env = SensorEnv(chars=chars, config=config, sensors=sensors)
+        else:
+            env = ShodoEnv(chars=chars, config=config)
         if objective == "ink":
             env = InkObjective(env)
         if base_checkpoint is not None:
             local_base = directory / "bc.pt"
             if base_checkpoint.resolve() != local_base.resolve():
                 shutil.copyfile(base_checkpoint, local_base)
-            env = ResidualControl(env, load_policy(local_base, device=device))
+            env = ResidualControl(env, base)
         env = Monitor(env, str(directory / "ppo-monitor.csv"), override_existing=not resume)
         try:
             if resume:
@@ -191,8 +223,10 @@ def load_controller(directory, *, device="cpu"):
     metadata = json.loads((directory / "ppo.json").read_text())
     if metadata.get("observation_version") != OBSERVATION_VERSION:
         raise ValueError("PPO observation contract is incompatible; retrain the policy")
+    sensors = _sensors_from_metadata(metadata)
     model = PPO.load(directory / "ppo", device=resolved)
-    if model.observation_space.shape != (OBSERVATIONS,) or model.action_space.shape != (ACTIONS,):
+    observations = SENSOR_FEATURES * sensors.history if sensors else OBSERVATIONS
+    if model.observation_space.shape != (observations,) or model.action_space.shape != (ACTIONS,):
         raise ValueError("PPO shape mismatch")
     scale = metadata.get("residual_scale", 0.0)
     base = None
@@ -201,6 +235,7 @@ def load_controller(directory, *, device="cpu"):
         if hashlib.sha256(checkpoint.read_bytes()).hexdigest() != metadata["base_sha256"]:
             raise ValueError("Residual base controller does not match the training checkpoint")
         base = load_policy(checkpoint, device=device)
+        _check_base_sensors(base, sensors)
 
     def predict(observation):
         action = model.predict(observation, deterministic=True)[0]
@@ -208,4 +243,12 @@ def load_controller(directory, *, device="cpu"):
 
     predict.device = str(resolved)
     predict.requested_device = device
+    predict.sensor_config = sensors
+    predict.checkpoint_provenance = {
+        "algorithm": "ppo",
+        "path": str((directory / "ppo.zip").resolve()),
+        "sha256": hashlib.sha256((directory / "ppo.zip").read_bytes()).hexdigest(),
+        "metadata_sha256": hashlib.sha256((directory / "ppo.json").read_bytes()).hexdigest(),
+        "residual_base_sha256": metadata.get("base_sha256") if base else None,
+    }
     return predict

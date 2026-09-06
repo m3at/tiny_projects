@@ -11,6 +11,40 @@ from shodo import cli
 from shodo.config import SimConfig
 
 
+@pytest.mark.parametrize(
+    "command,policy,noise",
+    [
+        ("demo", "oracle", "0"),
+        ("record", "zero", "0"),
+        ("record", "oracle", "-1"),
+        ("record", "oracle", "nan"),
+    ],
+)
+def test_expert_noise_cli_rejects_invalid_scope_before_outputs(
+    tmp_path, monkeypatch, capsys, command, policy, noise
+):
+    output = tmp_path / "unused"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "shodo",
+            command,
+            "--policy",
+            policy,
+            "--expert-noise",
+            noise,
+            "--run-dir",
+            str(output),
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2
+    assert "--expert-noise requires" in capsys.readouterr().err
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("ink,truncated", [(0.1234, False), (None, True)])
 def test_demo_prints_curated_metrics_and_artifact_paths(
     tmp_path, monkeypatch, capsys, ink, truncated

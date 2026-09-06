@@ -73,6 +73,54 @@ The fast brush has 19 elastic/frictional bundles, persistent sticking/sliding co
 
 Reports separate handle-tip error from ink-center error: the handle intentionally offsets to compensate brush deformation. Visible ink coverage/spill complement tracking and contact metrics; missing ink is not successful drawing.
 
+## Sensor policies, training data and robustness
+
+The privileged 40-input benchmark remains available and existing checkpoints keep observation contract 3. Opt-in sensor policies use a separate `sensor-history` contract (version 1): 39 features per time slice, four slices by default. Inputs contain measured tool-pose tracking/command errors, reference preview, joint position/velocity, a world-frame force measurement, authored target force/drawing state, sample age and freshness. They exclude contact-center position, bristle deflection, contact fraction and ink state. History runs oldest to newest; reset repeats the first sample without importing a previous episode. The student is feedforward over this history, not recurrent.
+
+`SensorEnv` adapts simulated pose/joints/contact force into those channels. Force is an ideal compensated contact-force proxy, not a simulated wrist transducer: sensor inertia, gravity compensation error and hardware filtering are not modeled. Pose noise is applied to a synthetic pose-estimator channel rather than recomputed from noisy joint encoders. Sensor age exposes delay/dropout; packets hold their acquisition timestamp. Reset bootstraps one current sample even with latency/dropout configured. Cameras are optional recorded data, not inputs to the current BC/PPO networks. This is a sensor-realistic interface experiment, not hardware readiness.
+
+```sh
+# Train a history-conditioned student from privileged teacher labels.
+make train OBSERVATION=sensor RUN_DIR=runs/sensor-bc EPISODES=56 EPOCHS=60
+make evaluate RUN_DIR=runs/sensor-bc
+
+# Optional explicit synthetic noise/delay profile; separate from physical TOML settings.
+make train SENSOR_CONFIG=experiments/sensors.json RUN_DIR=runs/sensor-noisy
+
+# PPO and residual PPO also accept the sensor contract.
+make residual OBSERVATION=sensor RUN_DIR=runs/sensor-residual \
+  BASE_POLICY=runs/sensor-bc/bc.pt STEPS=32768
+
+# Lossless training episodes, not demo videos. Use a new destination for each collection.
+make record POLICY=classical RUN_DIR=runs/sensor-data CHARS=一永 EPISODES=2 CAMERA_EVERY=5
+make record POLICY=learned RUN_DIR=runs/sensor-bc CHARS=永 EPISODES=1
+
+# Paired classical/oracle/zero baselines, optionally with a learned sensor checkpoint.
+make robustness POLICY=classical RUN_DIR=runs/sensor-baselines SEEDS="7 17 27"
+make robustness RUN_DIR=runs/sensor-bc SEEDS="7 17 27"
+```
+
+In sensor mode `expert` means the measured-pose/normal-force classical baseline; `oracle` explicitly accesses privileged contact state and the true reference. BC uses privileged teacher actions as supervised labels but never includes that state in student observations. The classical controller uses proportional pose feedback and a specified 0.02 m/N normal-force correction; it is not claimed to be optimally tuned. It has a known native-brush force-limit failure; reduced-trained sensor BC also has poor native ink accuracy (see VALIDATION.md). Neither is a universally safe controller. Learned checkpoint loaders validate mode/history; PPO resume and residual bases additionally enforce identical training sensor settings. Evaluation can override corruption settings while retaining the input schema. Sensor checkpoints use `evaluate`/`robustness`; canonical `validate` remains a privileged benchmark. Custom sensor-policy callables declare a `sensor_config` attribute and may implement `reset()`; the episode runner calls reset once, then supplies copied observation arrays.
+
+`contracts.py` defines the standalone sensor/reference schemas, feature encoding and action transform. `runtime.py` contains the synthetic sensor adapter and synchronous execution transaction. Requested actions are stored before clipping; applied actions are effective workspace-clipped Cartesian command increments, **not measured robot motion**. XYZ is world-frame meters; rotation uses additive world-axis rotation-vector coordinates with `R = Exp(rotvec) @ DOWN`, not body-frame twist increments. Sensor BC/PPO policies receive observation arrays; the optional SmolVLA actor additionally receives raw camera observations through its camera callback. Neither receives an environment object. This runtime does not provide a real-time watchdog, hardware driver or safety certification.
+
+`record` writes one atomic, overwrite-protected `episodes/episode-000000.npz` per episode. Each contains `T+1` observations/decision timestamps and unnormalized `input_*` measured/reference/command channels, `T` requested/applied actions, rewards, termination/truncation flags, separately named privileged histories, embedded contracts/configuration/source and checkpoint provenance/attribution, and optional raw 640×480 perspective RGB frames with their own acquisition timestamps. Raw channels are sufficient to reconstruct the complete normalized policy history without privileged diagnostics. Frames have no diagnostic text, paper inset, interpolation or presentation holds; synthetic pinhole intrinsics and world-to-camera matrices accompany them. Decision time is not sensor acquisition time; both are recorded. Camera cadence is independent of policy observations. FFmpeg is unnecessary. Entire episodes are buffered in memory, so raw-camera collections should remain bounded; this is the native dataset format, not LeRobot compatibility.
+
+```python
+from shodo.dataset import load_episode
+
+episode = load_episode("runs/sensor-data/episodes/episode-000000.npz")
+batch = episode.window(start=0, length=16)  # 16 transitions and 17 observations
+```
+
+The robustness suite freezes named registration, tool-calibration, force-bias, noise, latency, dropout and combined cases. Paper XYZ/yaw cases change the **estimated reference frame**, not physical paper geometry. The same glyph/material seed is paired across cases/controllers; reports retain raw metrics, missing-ink/incomplete/truncation counts and each controller's difference from its own nominal result. Oracle results should be invariant to sensing-only changes. Default severities are engineering probes, not calibrated distributions or acceptance limits. Fixed cases and inspected glyphs are exploratory validation, not a blinded final test. Optional plant material cases are available through the Python API. Physical paper motion, camera corruption and hardware trials remain outside this implementation.
+
+### Optional SmolVLA LoRA
+
+[SmolVLA integration](integrations/smolvla/README.md) adds a pinned pretrained vision-language-action policy with adapter-only LoRA training over sensor state, raw causal camera frames, and effective Cartesian command increments. Run `make smolvla-setup`, then follow the recording, preparation, training, reload-verification, and held-out evaluation workflow there. Its separate locked environment and `VLA_DEVICE=auto` setting do not change ordinary BC/PPO dependencies or CPU defaults. The default 100-update run is a development check, not evidence of policy quality; inference is synchronous simulation, not real-time hardware control.
+
+The guide also covers oracle recovery demonstrations (`make record POLICY=oracle EXPERT_NOISE=0.08`), separate one-step expert targets, opt-in inference caching/LoRA merging, and a causal replay latency audit. Keep explicitly marked training-character diagnostics separate from held-out evaluation reports.
+
 ## Native rods and settings
 
 ```sh

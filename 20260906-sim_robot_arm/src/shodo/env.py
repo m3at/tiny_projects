@@ -11,6 +11,7 @@ from scipy.spatial.transform import Rotation
 
 from shodo.brush import Brush
 from shodo.config import SimConfig
+from shodo.contracts import ActionContract
 from shodo.data import TRAIN, trajectory
 from shodo.ink import Paper
 from shodo.robot import DOWN, Panda
@@ -77,7 +78,10 @@ class ShodoEnv(gym.Env):
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, (OBSERVATIONS,), dtype=np.float32)
         self.renderer = None
         self.zero = np.zeros(3)
-        self.scales = np.r_[np.full(3, config.translation_step), np.full(3, config.rotation_step)]
+        self.action_contract = ActionContract(
+            config.translation_step, config.rotation_step, config.dt
+        )
+        self.scales = self.action_contract.scales
 
     @property
     def tip(self):
@@ -151,6 +155,8 @@ class ShodoEnv(gym.Env):
         self.target_force = self.config.brush.normal_stiffness * np.maximum(depth, 0).mean(axis=1)
         self.index = 0
         self.command = np.r_[self.path[0], self.tilts[0]]
+        self.last_requested_action = np.zeros(ACTIONS)
+        self.last_applied_action = np.zeros(ACTIONS)
         self.robot.reset(self.command[:3], self.command[3:])
         self.brush.update(self.tip, self.robot.rotation, self.config.timestep)
         self.paper = Paper(
@@ -186,12 +192,9 @@ class ShodoEnv(gym.Env):
         action = np.asarray(action, dtype=float)
         if action.shape != (ACTIONS,) or not np.isfinite(action).all():
             raise ValueError("Action must be a finite 6-vector")
+        self.last_requested_action = action.copy()
+        self.command, self.last_applied_action = self.action_contract.apply(self.command, action)
         action = np.clip(action, -1, 1)
-        self.command = np.clip(
-            self.command + self.scales * action,
-            [0.395, -0.105, -0.007, -0.3, -0.3, -0.3],
-            [0.605, 0.105, 0.05, 0.3, 0.3, 0.3],
-        )
         self.robot.q_target = self.robot.inverse(self.command[:3], self.command[3:])
         cfg = self.config
         deposits, masses = [], []
