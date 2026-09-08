@@ -1,0 +1,9 @@
+{
+  "history": 4,
+  "latency_steps": 1,
+  "dropout": 0.02,
+  "position_noise": 0.0001,
+  "joint_noise": 0.0002,
+  "velocity_noise": 0.002,
+  "force_noise": 0.01
+}

@@ -1,0 +1,23 @@
+# Optional speed/accuracy tradeoff, not a replacement for cable.toml.
+# Same free-sliding hair analogue; 2 mm reference curvature and 5 mm/s touchdown.
+# Both geometry and approach are procedural, not measurements of a physical brush.
+timestep = 0.0001
+substeps = 200
+touchdown_speed = 0.005
+
+[brush]
+backend = "cable"
+bundles = 7
+rod_segments = 6
+rod_radius = 0.0013363062095621218
+young_modulus = 803722.5
+shear_modulus = 267907.5
+rod_damping = 1e-6
+rod_tip_offset = 0.002
+rod_density = 431.30513768042664
+normal_stiffness = 20.0
+tangential_stiffness = 1.5655807921160851
+transfer_load = 0.03
+
+[ink]
+resolution = 256

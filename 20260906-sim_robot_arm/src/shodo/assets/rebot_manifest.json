@@ -1,0 +1,32 @@
+{
+  "revision": "ce074041cd1c26f67ce74c2ca6fca9af22f8aee5",
+  "url": "https://raw.githubusercontent.com/Seeed-Projects/reBot-DevArm/ce074041cd1c26f67ce74c2ca6fca9af22f8aee5",
+  "license": "CERN-OHL-W-2.0",
+  "sha256": {
+    "LICENSE": "e258a9c6833bfd17fb90252df8c33e29d13fabc2768508248927824c17878db7",
+    "Rebot_Arm_description/RS/README.md": "335cf42ffd08924ca0975e0e6e50bf00bcf22486b75b2c558059b988b1c17d82",
+    "Rebot_Arm_description/RS/meshes/shared/base_link.STL": "af1df69639fb1f1022ad94ca1537157f8dbef379ec37fd75d8901d30d4061cbe",
+    "Rebot_Arm_description/RS/meshes/shared/link1.STL": "60860556dd91b15eff0bb7d3a5bffcf4b34ac98156c542f203ad6ce755be2d1d",
+    "Rebot_Arm_description/RS/meshes/shared/link2.STL": "f3653afa47f7f2ee9733416e56c52745b5eaafd23ca6c84360dffd440e12668d",
+    "Rebot_Arm_description/RS/meshes/shared/link3.STL": "3d6502345c14bd2d6c5b9c394672efdaa2b787cc81a0bed23a0bde574e787a28",
+    "Rebot_Arm_description/RS/meshes/shared/link4.STL": "431e5e7365ba31df598207dee6d48ff3051ec32f6d42dcae8e3b25e7807617c4",
+    "Rebot_Arm_description/RS/meshes/shared/link5.STL": "e8888083f0cf597e7f0afb7b273b81f55df7ef45eee706dbf840c9ef365c7b1e",
+    "Rebot_Arm_description/RS/meshes/shared/link6.STL": "29a7809bde57f21b536588e78e66bec137f1fbe50308b71ffa842b6efbb109fd",
+    "Rebot_Arm_description/RS/meshes/visual/cnc2.STL": "fa41ae81c68a7ce3ad49c3680ac7cde88fa5d02984298846f3c6fa6a28d009db",
+    "Rebot_Arm_description/RS/meshes/visual/cnc3.STL": "4018cd61ac7d6dd97cfe45cb7b0480d0275476757c2afc61bf05bd287fad3ca4",
+    "Rebot_Arm_description/RS/meshes/visual/cnc4.STL": "6a85571eaedbbf06a799a89fd56d9cf3778070cd852ec6cb6da285ec34a35dec",
+    "Rebot_Arm_description/RS/meshes/visual/cnc5.STL": "1772159cd66b600c0ed0db67c7f5c33865ee09e9b2dae02339d95d9cef158489",
+    "Rebot_Arm_description/RS/meshes/visual/motor_2_3.STL": "509d445fa6cade769d0c9865b5ae7e6d7ae7cf05496ade798e293edc834f9725",
+    "Rebot_Arm_description/RS/meshes/visual/motor_4.STL": "2251e479b009b2c1335e0c932dd44bf3f170cf55fec1febd944ae087bbbcac22",
+    "Rebot_Arm_description/RS/meshes/visual/motor_5.STL": "87a9380b8441116d1e31eafcdd2900a06eb3ad9a0858b7715b41485660af07b4",
+    "Rebot_Arm_description/RS/meshes/visual/motor_6.STL": "a488f0f5d5727b2086f1511570f06a722b6e6312894ba12d7eacd0614208d527",
+    "Rebot_Arm_description/RS/meshes/visual/pla2_black.STL": "3334ffafff11e43f2bc6102e734e2fe0b61369ae5dd657163c01e005f5fa753d",
+    "Rebot_Arm_description/RS/meshes/visual/pla2_green.STL": "3c1445d686ec45637f2ca16546b23c06a1671ae4266b7df0ae00671e1b093431",
+    "Rebot_Arm_description/RS/meshes/visual/pla3_black_without_seeed_badge.STL": "3cc986a724bb7e22acba8b2c905fcd6d0d2d7f9b1094e64a4960f24cc94f146e",
+    "Rebot_Arm_description/RS/meshes/visual/pla3_green.STL": "7aee9689f19b6cb697bc81e2005b2652a1fad2887798108d96500bd82796b212",
+    "Rebot_Arm_description/RS/meshes/visual/pla3_seeed_badge_with_counters.STL": "24f7fb2daafafc408eda5a23b7a71cad6a0de65533a2d8ea0703916bf3857a1f",
+    "Rebot_Arm_description/RS/meshes/visual/pla3_seeed_wordmark_backing.STL": "b837592ca2910576526e3806f0c96c19e3eac8ba197e38149f1e7935932b4208",
+    "Rebot_Arm_description/RS/meshes/visual/pla5_green.STL": "d8810ec3fe0a9cb56d5fb9939d6f826b8cc62dd2691131aa44ccf9f9d01cc547",
+    "Rebot_Arm_description/RS/urdf/ReBot_Arm_RS.urdf": "3838ca8f9d586be22a89b33c7cbdd4abd43d4a92a2de377b294eef4c5bd7654d"
+  }
+}

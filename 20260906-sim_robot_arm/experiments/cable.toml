@@ -1,0 +1,22 @@
+# Free-sliding bundle reference: 1,000 hairs, 75 um radius, 567 MPa wet-hair analogue.
+# Derived by shodo.config.free_hair_bundle(); not a calibrated shodo brush.
+timestep = 0.0001
+substeps = 200
+touchdown_speed = 0.001
+
+[brush]
+backend = "cable"
+bundles = 7
+rod_segments = 6
+rod_radius = 0.0013363062095621218
+young_modulus = 803722.5
+shear_modulus = 267907.5
+rod_damping = 1e-6
+rod_tip_offset = 0.001
+rod_density = 431.30513768042664
+normal_stiffness = 20.0
+tangential_stiffness = 1.5655807921160851
+transfer_load = 0.03
+
+[ink]
+resolution = 256
