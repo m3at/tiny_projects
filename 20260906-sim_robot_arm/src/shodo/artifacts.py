@@ -12,7 +12,7 @@ import numpy as np
 
 from shodo.data import SHA256, TEST, TRAIN
 from shodo.env import HISTORY_COLUMNS
-from shodo.robot import REVISION
+from shodo.rebot import MANIFEST, REVISION, ROBOT_CONTRACT
 from shodo.video import FINAL_HOLD, save_video
 
 _ROOT = Path(__file__).parent
@@ -49,6 +49,13 @@ def provenance():
         "lock_sha256": _LOCK_HASH,
         "dataset_sha256": SHA256,
         "robot_revision": REVISION,
+        "robot_contract": ROBOT_CONTRACT,
+        "robot_source": {
+            "url": f"https://github.com/Seeed-Projects/reBot-DevArm/tree/{REVISION}/Rebot_Arm_description/RS",
+            "license": "CERN-OHL-W-2.0",
+            "attribution": "Seeed Studio; gripper removed, rigid brush and bounded actuators added",
+            "manifest_sha256": _SOURCE_HASHES[MANIFEST.relative_to(_ROOT).as_posix()],
+        },
         "train_chars": TRAIN,
         "held_out_chars": TEST,
     }

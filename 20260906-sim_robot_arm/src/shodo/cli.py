@@ -21,6 +21,7 @@ def main():
         "command",
         choices=[
             "data",
+            "prepare",
             "train",
             "evaluate",
             "demo",
@@ -210,6 +211,10 @@ def main():
     if args.command == "data":
         fetch()
         fetch_robot()
+    elif args.command == "prepare":
+        from shodo.preparation import audit
+
+        audit(directory / "preparation", config)
     elif args.command == "train":
         train(
             episodes=args.episodes,

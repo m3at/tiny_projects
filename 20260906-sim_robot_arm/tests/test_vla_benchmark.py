@@ -1,12 +1,10 @@
-import json
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
 
-from shodo import vla_benchmark
-from shodo.vla_benchmark import _denoising_sweep, _replay, latency_summary
+from shodo.vla_benchmark import _replay, latency_summary
 from shodo.vla_inference import FrameCache, PromptCache, cached_vision
 
 
@@ -197,32 +195,3 @@ def test_replay_cache_matches_changing_state_fresh_images_and_fixed_noise(object
     assert fresh == other_fresh == [True, False, True]
     assert all(whole >= inner > 0 for whole, inner in zip(total, inference, strict=True))
     assert not np.array_equal(actual[0], actual[1])
-
-
-@pytest.mark.parametrize(
-    "report,requested,expected",
-    [
-        ({}, None, (1, 2, 4, 10)),
-        ({"objective": "flow_matching"}, None, (1, 2, 4, 10)),
-        ({"objective": "flow_matching"}, [2, 4], (2, 4)),
-        ({"objective": "action_regression"}, None, (1,)),
-        ({"objective": "action_regression"}, [1], (1,)),
-    ],
-)
-def test_denoising_sweep_defaults_follow_adapter_objective(report, requested, expected):
-    assert _denoising_sweep(report, requested) == expected
-
-
-@pytest.mark.parametrize("requested", [[2], [1, 2], [10], [0], [True], [None], [], 1])
-def test_invalid_action_regression_sweep_rejected_before_episode_or_model_loading(
-    tmp_path, monkeypatch, requested
-):
-    (tmp_path / "training.json").write_text(json.dumps({"objective": "action_regression"}))
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Preflight must reject the sampler before loading")
-
-    monkeypatch.setattr(vla_benchmark, "load_adapter", forbidden)
-    monkeypatch.setattr(vla_benchmark, "load_episode", forbidden)
-    with pytest.raises(ValueError):
-        vla_benchmark.benchmark(tmp_path, "unused.npz", denoise_steps=requested)

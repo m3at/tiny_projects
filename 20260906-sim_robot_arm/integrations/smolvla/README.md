@@ -1,5 +1,7 @@
 # SmolVLA LoRA development
 
+This workflow now uses the B601-RS with a rigid vertical brush. Its new action contract and reserved joint slot reject earlier Panda datasets/adapters. The optional neural integration has regression coverage, but no B601 SmolVLA training or hardware qualification is claimed.
+
 This optional integration adapts pretrained SmolVLA to Shodo's sensor inputs, raw camera view, and six Cartesian command increments. It uses LeRobot's SmolVLA implementation and PEFT LoRA, with a local Shodo dataset reader rather than LeRobotDataset or Hub publication. The default 100 updates are a development smoke run, not a policy-quality training budget. See [VALIDATION.md](../../VALIDATION.md) for measured results and limitations.
 
 ## Setup and first run
@@ -71,7 +73,7 @@ Prepared datasets contain read-only memory-mapped `.npy` arrays and a manifest w
 
 ## Input and action contract
 
-The actor uses one raw perspective camera, a task string such as `Draw 一 on paper following the supplied stroke reference.`, and 32 state features. State selects indices `0:25` and `32:39` from the latest 39-feature `sensor-history` slice: measured pose/reference/command errors, preview, seven joint positions, force proxy, authored target force and drawing flag, sample age, and freshness. It omits joint velocities and earlier history slices. No contact-center, bristle-deflection, contact-fraction, or privileged ink arrays enter model inputs. The force proxy remains synthetic and uncalibrated; supplied references mean this is path-conditioned control, not autonomous stroke planning.
+The actor uses one raw perspective camera, a task string such as `Draw 一 on paper following the supplied stroke reference.`, and 32 state features. State selects indices `0:25` and `32:39` from the latest 39-feature `sensor-history` slice: measured pose/reference/command errors, preview, six joint positions and one reserved zero, force proxy, authored target force and drawing flag, sample age, and freshness. It omits joint velocities and earlier history slices. No contact-center, bristle-deflection, contact-fraction, or privileged ink arrays enter model inputs. The force proxy remains synthetic and uncalibrated; supplied references mean this is path-conditioned control, not autonomous stroke planning.
 
 At every action decision, preparation selects the latest camera frame whose acquisition timestamp is at or before that decision. It never borrows a future frame. Recording every five 50 Hz control steps gives a 10 Hz camera stream; intervening decisions reuse the last acquired image. Frames have no diagnostic overlays or paper inset. They are bilinearly resized with preserved aspect ratio, centered on a black 256×256 canvas by default, and converted from uint8 RGB to float32 RGB divided by 255. The same preprocessing is used during inference.
 
@@ -145,7 +147,7 @@ make smolvla-demo VLA_OUTPUT=runs/smolvla-recovery-regression CHARS=永 \
   VLA_ARGS="--optimize-inference --trim-language-padding --cache-static-inputs"
 ```
 
-This exports actual executed motion to H.264 MP4, with final paper/scene PNGs, named trajectory NPZ and full metrics JSON. It prints compact quality summaries and artifact paths. FFmpeg is required, and existing demo outputs are protected; set `VLA_DEMO_OUTPUT` to another destination when needed. Execution defaults to the smaller of four actions and the trained chunk size, with objective-aware denoising. Video timing follows simulation time, so smooth playback does not demonstrate real-time inference. The canonical `runs/smolvla-demo/smolvla-06c38.mp4` uses the one-pass checkpoint; numerical quality and latency evidence remain in [VALIDATION.md](../../VALIDATION.md).
+This exports actual executed motion to H.264 MP4, with final paper/scene PNGs, named trajectory NPZ and full metrics JSON. It prints compact quality summaries and artifact paths. FFmpeg is required, and existing demo outputs are protected; set `VLA_DEMO_OUTPUT` to another destination when needed. Execution defaults to the smaller of four actions and the trained chunk size, with objective-aware denoising. Video timing follows simulation time, so smooth playback does not demonstrate real-time inference. B601 recordings and adapters must be generated afresh; earlier Panda results are not carried forward. Current qualification scope is recorded in [VALIDATION.md](../../VALIDATION.md).
 
 ## Pinned models and primary sources
 

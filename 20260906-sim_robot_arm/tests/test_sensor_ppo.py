@@ -15,11 +15,13 @@ from shodo.contracts import SENSOR_FEATURES, SensorConfig, sensor_contract
 from shodo.data import TRAIN
 from shodo.env import ACTIONS, OBSERVATION_VERSION, OBSERVATIONS
 from shodo.learning import network
+from shodo.rebot import ROBOT_CONTRACT
 
 
 def metadata(sensors=None):
     return {
         "seed": 7,
+        "robot_contract": ROBOT_CONTRACT,
         "train_chars": TRAIN,
         "observation_version": OBSERVATION_VERSION,
         "config": SimConfig(randomize=True).to_dict(),
@@ -124,6 +126,8 @@ def test_base_mismatch_precedes_creation_of_output(tmp_path, sensors):
     settings = SensorConfig()
     torch.save(
         {
+            "robot_contract": ROBOT_CONTRACT,
+            "robot_config": SimConfig().to_dict()["robot"],
             "state_dict": network(SENSOR_FEATURES * settings.history).state_dict(),
             "observation_version": OBSERVATION_VERSION,
             "sensors": settings.to_dict(),

@@ -1,83 +1,34 @@
-"""Pinned Menagerie model and torque-controlled six-dimensional brush pose."""
+"""Torque-driven B601-RS with a rigid brush and bounded MIT joint commands."""
 
-import hashlib
-import json
-import urllib.request
+import copy
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-from pathlib import Path
 
 import mujoco
 import numpy as np
-from filelock import FileLock
 from scipy.spatial.transform import Rotation
 
-from shodo.config import BrushConfig
+from shodo.actuation import JointGovernor
+from shodo.config import BrushConfig, RobotConfig
+from shodo.rebot import REVISION, arm_xml, fetch_robot  # noqa: F401
 
-REVISION = "8161bba264d7fa7c99ca301e91e7fb44737676ad"
-ROOT = Path("data/robot/panda")
-BASE = f"https://raw.githubusercontent.com/google-deepmind/mujoco_menagerie/{REVISION}/franka_emika_panda"
 DOWN = np.diag([1.0, -1.0, -1.0])
-HOME = np.array([0, -0.45, 0, -2.2, 0, 1.8, -2.3562])
-
-
-def fetch_robot():
-    ROOT.mkdir(parents=True, exist_ok=True)
-    with FileLock(ROOT / ".fetch.lock", timeout=120):
-        return _fetch_robot()
-
-
-def _fetch_robot():
-    receipt = ROOT / "provenance.json"
-    manifest = json.loads((Path(__file__).parent / "assets/panda_manifest.json").read_text())
-    if manifest["revision"] != REVISION:
-        raise ValueError("Panda manifest revision does not match the pinned source")
-    expected = manifest["sha256"]
-
-    def download(name):
-        path = ROOT / name
-        if path.exists() and hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]:
-            return name, expected[name]
-        with urllib.request.urlopen(f"{BASE}/{name}", timeout=60) as response:
-            content = response.read()
-        if hashlib.sha256(content).hexdigest() != expected[name]:
-            raise ValueError(f"Panda checksum mismatch: {name}")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(path.name + ".pending")
-        temporary.write_bytes(content)
-        temporary.replace(path)
-        return name, hashlib.sha256(content).hexdigest()
-
-    hashes = dict(download(name) for name in ("panda_nohand.xml", "LICENSE", "README.md"))
-    tree = ET.parse(ROOT / "panda_nohand.xml")
-    names = {"assets/" + node.attrib["file"] for node in tree.iter("mesh") if "file" in node.attrib}
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        hashes.update(pool.map(download, sorted(names)))
-    receipt.write_text(
-        json.dumps(
-            {"revision": REVISION, "url": BASE, "license": "Apache-2.0", "sha256": hashes}, indent=2
-        )
-        + "\n"
-    )
-    print(f"Verified Panda model and {len(names)} meshes at {REVISION[:12]}", flush=True)
+HOME = np.array([0, 1.5, 1.5, 0, 0, 0])
 
 
 @lru_cache(maxsize=4)
-def model_xml(timestep, brush_config):
-    if not (ROOT / "panda_nohand.xml").exists():
-        raise FileNotFoundError("Panda model missing; run make data")
-    tree = ET.parse(ROOT / "panda_nohand.xml")
-    root = tree.getroot()
-    root.find("compiler").set("meshdir", str((ROOT / "assets").resolve()))
-    root.find("option").set("timestep", str(timestep))
-    root.remove(root.find("keyframe"))
-    actuator = root.find("actuator")
-    actuator.clear()
-    for i, limit in enumerate([87, 87, 87, 87, 12, 12, 12], 1):
-        ET.SubElement(actuator, "motor", joint=f"joint{i}", ctrlrange=f"{-limit} {limit}")
-    attachment = root.find(".//body[@name='attachment']")
-    tool = ET.SubElement(attachment, "body", name="brush")
+def model_xml(timestep, brush_config, robot_config=None):
+    robot_config = robot_config or RobotConfig()
+    root, attachment = arm_xml(timestep, robot_config)
+    tool = ET.SubElement(
+        attachment,
+        "body",
+        name="brush",
+        pos=" ".join(map(str, robot_config.mount_xyz)),
+        quat=" ".join(
+            map(str, Rotation.from_euler("xyz", robot_config.mount_rpy).as_quat(scalar_first=True))
+        ),
+    )
     ET.SubElement(
         tool,
         "geom",
@@ -85,7 +36,7 @@ def model_xml(timestep, brush_config):
         type="capsule",
         fromto="0 0 0 0 0 0.13",
         size="0.006",
-        mass="0.04",
+        mass=str(robot_config.handle_mass),
         rgba="0.52 0.28 0.09 1",
         # Handle=4, rods=2, scene/arm=1. The clamp defines rod attachment;
         # unresolved embedded root geometry must not add segment-dependent contacts.
@@ -103,8 +54,8 @@ def model_xml(timestep, brush_config):
         "geom",
         name="table",
         type="box",
-        pos="0.5 0 -0.035",
-        size="0.3 0.28 0.03",
+        pos="0.4 0 -0.035",
+        size="0.45 0.28 0.03",
         rgba="0.25 0.19 0.14 1",
     )
     ET.SubElement(
@@ -134,19 +85,32 @@ def model_xml(timestep, brush_config):
     return ET.tostring(root, encoding="unicode")
 
 
-class Panda:
-    def __init__(self, timestep=0.002, brush_config=None):
-        self.model = mujoco.MjModel.from_xml_string(
-            model_xml(timestep, brush_config or BrushConfig())
+@lru_cache(maxsize=4)
+def _compiled_model(timestep, brush_config, robot_config):
+    # Mesh compilation is expensive; the cached template is never handed to an environment.
+    return mujoco.MjModel.from_xml_string(model_xml(timestep, brush_config, robot_config))
+
+
+class RebotArm:
+    def __init__(self, timestep=0.002, brush_config=None, robot_config=None):
+        self.config = robot_config or RobotConfig()
+        self.model = copy.copy(
+            _compiled_model(timestep, brush_config or BrushConfig(), self.config)
         )
         self.data = mujoco.MjData(self.model)
         self.scratch = mujoco.MjData(self.model)
         self.site = self.model.site("tip").id
         self.body = self.model.body("brush").id
         self.jac = np.zeros((6, self.model.nv))
-        self.acceleration = np.zeros(self.model.nv)
-        self.inertial_force = np.zeros(self.model.nv)
         self.q_target = HOME.copy()
+        self.q_command = HOME.copy()
+        self.v_command = np.zeros(6)
+        self.protected_geoms = {
+            i
+            for i in range(self.model.ngeom)
+            if "_collision_" in self.model.geom(i).name or self.model.geom(i).name == "handle"
+        }
+        self.governor = JointGovernor(self.model.jnt_range[:6], self.config)
 
     @property
     def tip(self):
@@ -158,7 +122,7 @@ class Panda:
 
     def inverse(self, position, rotvec, iterations=5):
         data = self.scratch
-        data.qpos[:7] = self.q_target
+        data.qpos[:6] = self.q_target
         rotation = Rotation.from_rotvec(rotvec).as_matrix() @ DOWN
         for _ in range(iterations):
             # IK needs only site transforms and motion axes, not contacts or dynamics.
@@ -173,36 +137,71 @@ class Panda:
             if np.linalg.norm(error) < 1e-6:
                 break
             mujoco.mj_jacSite(self.model, data, self.jac[:3], self.jac[3:], self.site)
-            jac = self.jac[:, :7]
+            jac = self.jac[:, :6]
             delta = jac.T @ np.linalg.solve(jac @ jac.T + 1e-5 * np.eye(6), error)
-            data.qpos[:7] = np.clip(
-                data.qpos[:7] + np.clip(delta, -0.15, 0.15),
-                self.model.jnt_range[:7, 0] + 0.01,
-                self.model.jnt_range[:7, 1] - 0.01,
+            data.qpos[:6] = np.clip(
+                data.qpos[:6] + np.clip(delta, -0.15, 0.15),
+                self.model.jnt_range[:6, 0] + 0.01,
+                self.model.jnt_range[:6, 1] - 0.01,
             )
-        return data.qpos[:7].copy()
+        return data.qpos[:6].copy()
 
     def reset(self, position, rotvec):
         mujoco.mj_resetData(self.model, self.data)
         self.q_target = HOME.copy()
         self.q_target = self.inverse(position, rotvec, iterations=150)
-        self.data.qpos[:7] = self.q_target
+        self.q_command = self.q_target.copy()
+        self.v_command[:] = 0
+        self.governor.reset(self.q_target, 0.0)
+        self.data.qpos[:6] = self.q_target
         mujoco.mj_forward(self.model, self.data)
-        if np.linalg.norm(self.tip - position) > 0.001:
-            raise ValueError(f"Panda reset IK failed: {self.tip - position}")
+        if (
+            np.linalg.norm(self.tip - position) > 0.001
+            or np.linalg.norm(
+                Rotation.from_matrix(
+                    self.rotation @ (Rotation.from_rotvec(rotvec).as_matrix() @ DOWN).T
+                ).as_rotvec()
+            )
+            > 0.01
+        ):
+            raise ValueError(f"B601-RS reset IK failed: {self.tip - position}")
+
+    def set_target(self, target):
+        self.governor.submit(target, self.data.time, self.data.time)
+        self.q_target = np.asarray(target).copy()
 
     def step(self, force, torque):
-        # Inverse-dynamics joint impedance, with actual tool load and torque limits.
+        # External brush reaction couples into arm dynamics at the actual tip.
         self.data.qfrc_applied[:] = 0
         mujoco.mj_applyFT(
             self.model, self.data, force, torque, self.tip, self.body, self.data.qfrc_applied
         )
-        self.acceleration[:7] = 900 * (self.q_target - self.data.qpos[:7]) - 60 * self.data.qvel[:7]
-        mujoco.mj_mulM(self.model, self.data, self.inertial_force, self.acceleration)
-        self.data.ctrl[:] = np.clip(
-            self.inertial_force[:7] + self.data.qfrc_bias[:7],
-            self.model.actuator_ctrlrange[:, 0],
-            self.model.actuator_ctrlrange[:, 1],
+        cfg = self.config
+        self.q_command, self.v_command = self.governor.advance(
+            self.data.time + self.model.opt.timestep
+        )
+        # MIT law: kp(q_cmd-q) + kd(v_cmd-v) + gravity/Coriolis feedforward.
+        # Affine actuator applies position/velocity feedback and total force limits.
+        self.data.ctrl[:] = (
+            np.asarray(cfg.kp) * self.q_command
+            + np.asarray(cfg.kd) * self.v_command
+            + self.data.qfrc_bias[:6]
         )
         mujoco.mj_step(self.model, self.data)
         mujoco.mj_forward(self.model, self.data)
+
+    @property
+    def joint_positions(self):
+        """Fixed observation slots: six measured arm joints and a reserved zero."""
+        return np.r_[self.data.qpos[:6], 0.0]
+
+    @property
+    def joint_velocities(self):
+        return np.r_[self.data.qvel[:6], 0.0]
+
+    def forbidden_contacts(self, data=None):
+        data = self.data if data is None else data
+        return sum(
+            c.dist < 0 and (c.geom1 in self.protected_geoms or c.geom2 in self.protected_geoms)
+            for c in data.contact
+        )

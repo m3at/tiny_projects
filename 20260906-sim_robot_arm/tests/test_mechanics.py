@@ -8,9 +8,11 @@ from shodo.mechanics import cantilever
 
 
 def test_native_beam_mass_timestep_and_recovery():
+    # Three segments exercise discrete bending and settle within 0.3 s.
+    # The full segment/bundle refinement study remains in make mechanics.
     results = []
-    for dt in (0.0001, 0.00005):
-        report, _ = cantilever(timestep=dt, duration=1.0, recovery=1.0)
+    for dt in (0.0002, 0.0001):
+        report, _ = cantilever(segments=3, timestep=dt, duration=0.3, recovery=0.3)
         assert not any(report["warnings"])
         assert report["mass_kg"] == pytest.approx(report["expected_mass_kg"], rel=1e-6)
         assert report["discrete_relative_error"] < 0.005

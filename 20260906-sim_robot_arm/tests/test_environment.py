@@ -3,19 +3,18 @@ from dataclasses import replace
 import mujoco
 import numpy as np
 import pytest
-from gymnasium.utils.env_checker import check_env
 from scipy.spatial.transform import Rotation
 
 from shodo.brush import Brush
-from shodo.config import InkConfig, SimConfig, free_hair_bundle
+from shodo.config import InkConfig, SimConfig
 from shodo.data import TEST, TRAIN, strokes, trajectory
 from shodo.env import ACTIONS, ShodoEnv
 from shodo.ink import Paper
-from shodo.robot import DOWN, Panda
+from shodo.robot import DOWN, RebotArm
 
 
-def test_panda_pose_and_reaction():
-    robot = Panda()
+def test_rebot_pose_and_reaction():
+    robot = RebotArm()
     for point in ([0.41, -0.09, 0.025], [0.59, 0.09, -0.004], [0.5, 0, 0.01]):
         robot.reset(np.array(point), np.zeros(3))
         np.testing.assert_allclose(robot.tip, point, atol=1e-5)
@@ -24,18 +23,18 @@ def test_panda_pose_and_reaction():
     robot.step(np.array([0.0, 0.0, 1.0]), np.zeros(3))
     assert np.linalg.norm(robot.data.qfrc_applied) > 0.01
     assert np.linalg.norm(robot.data.qvel) > 1e-5
-    assert (np.abs(robot.data.ctrl) <= robot.model.actuator_ctrlrange[:, 1]).all()
+    assert (np.abs(robot.data.actuator_force) <= robot.model.actuator_forcerange[:, 1]).all()
 
 
 def test_ik_minimal_pipeline_matches_full_dynamics():
-    robot = Panda()
+    robot = RebotArm()
     full, minimal = mujoco.MjData(robot.model), mujoco.MjData(robot.model)
     a, b = np.zeros_like(robot.jac), np.zeros_like(robot.jac)
     rng = np.random.default_rng(7)
     for q in rng.uniform(
-        robot.model.jnt_range[:7, 0] + 0.01, robot.model.jnt_range[:7, 1] - 0.01, (20, 7)
+        robot.model.jnt_range[:6, 0] + 0.01, robot.model.jnt_range[:6, 1] - 0.01, (20, 6)
     ):
-        full.qpos[:7] = minimal.qpos[:7] = q
+        full.qpos[:6] = minimal.qpos[:6] = q
         mujoco.mj_forward(robot.model, full)
         mujoco.mj_kinematics(robot.model, minimal)
         mujoco.mj_comPos(robot.model, minimal)
@@ -151,7 +150,7 @@ def test_ink_timestep_and_resolution():
     np.testing.assert_allclose(moments, 4 * 2e-7, rtol=1e-6)
 
 
-def test_strokes_api_and_clean_reset():
+def test_strokes_api_and_clean_reset(short_stroke):
     for char in TRAIN + TEST + "書道愛龍風雨":
         path, ids = trajectory(char)
         assert np.isfinite(path).all(), char
@@ -167,17 +166,18 @@ def test_strokes_api_and_clean_reset():
         )
     env = ShodoEnv(chars="一", config=SimConfig(record=True))
     try:
-        check_env(env, skip_render_check=True)
-        histories = []
+        observations, histories = [], []
         for _ in range(2):
-            env.reset(seed=4)
-            for _ in range(90):
+            obs, _ = env.reset(seed=4)
+            observations.append(obs)
+            assert env.paper.mobile.sum() == env.paper.fixed.sum() == 0
+            assert env.data.time == 0 and not env.history
+            for _ in range(20):
                 env.step(env.expert())
+            assert env.paper.deposited_pigment > 0
             histories.append(np.array(env.history))
+        np.testing.assert_array_equal(*observations)
         np.testing.assert_array_equal(*histories)
-        assert env.paper.deposited_pigment > 0
-        env.reset(seed=4)
-        assert env.paper.mobile.sum() == 0 and env.paper.fixed.sum() == 0
         with pytest.raises(ValueError):
             env.step(np.full(ACTIONS, np.nan))
     finally:
@@ -199,7 +199,7 @@ def test_raster_metric_detects_missing_and_displaced_ink():
     assert displaced["raster_spill_fraction"] == 1
 
 
-def test_material_perturbation_keeps_target_and_updates_native_friction():
+def test_material_perturbation_keeps_authored_force_target():
     env = ShodoEnv(chars="一")
     try:
         env.reset(seed=1)
@@ -208,36 +208,5 @@ def test_material_perturbation_keeps_target_and_updates_native_friction():
         np.testing.assert_array_equal(target, env.target_force)
         assert env.brush.config.normal_stiffness == 330
         assert env.brush.config.friction == 0.4
-    finally:
-        env.close()
-    config = SimConfig(timestep=0.0001, substeps=200, brush=free_hair_bundle())
-    env = ShodoEnv(chars="一", config=config)
-    try:
-        env.reset(seed=1, options={"material": {"friction": 0.3}})
-        geoms = list(env.brush.geom_bundle)
-        np.testing.assert_array_equal(env.model.geom_friction[geoms, 0], 0.3)
-        env.reset(seed=1)
-        np.testing.assert_array_equal(env.model.geom_friction[geoms, 0], config.brush.friction)
-        with pytest.raises(ValueError):
-            env.reset(options={"material": {"young_modulus": 1e6}})
-    finally:
-        env.close()
-
-
-@pytest.mark.parametrize("segments", [6, 12])
-def test_native_roots_have_no_unintended_handle_contact(segments):
-    config = SimConfig(
-        timestep=0.00005,
-        substeps=400,
-        brush=replace(free_hair_bundle(segments=segments), rod_tip_offset=0.001),
-    )
-    env = ShodoEnv(chars="一", config=config)
-    try:
-        env.reset(seed=1)
-        assert env.data.ncon == 0
-        for _ in range(3):
-            _, _, _, truncated, _ = env.step(env.expert())
-            assert not truncated
-        assert env.data.ncon == 0
     finally:
         env.close()

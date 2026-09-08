@@ -1,25 +1,11 @@
-# Engineering notes
+# Engineering summary
 
-## Working model
+The current laboratory targets the reBot Arm B601-RS with a directly attached vertical brush. Seeed's public URDF and required meshes are pinned and checksum-verified; gripper descendants are removed. The importer preserves six-joint FK, full inertias and visual geometry without adding ROS/Pinocchio. A new robot contract rejects earlier Panda artifacts while retaining the established policy array sizes through explicit reserved zero joint slots.
 
-The headless laboratory couples a torque-driven seven-joint Panda to either elastic/frictional bristle bundles or native MuJoCo cable rods, with conservative water/mobile/fixed-pigment transport. Policies control six Cartesian pose increments. The privileged benchmark uses 40 observations (contract 3); opt-in sensor policies use histories of 39 measured/reference features (sensor contract 1). Only reset sets joint positions directly.
+The controller now uses published RS MIT gains, model bias compensation and rated motor torque limits, with bounded joint target speed/acceleration and a latching command lease. Actual actuator torque, joint motion and command targets are recorded separately. The table/base/paper placement is audited for the vertical wrist pose; the standalone preparation report retains all candidate samples, failures, static load and conditioning diagnostics. Calibration sign/zero transforms are tested independently and do not imply a configured hardware driver.
 
-## Evidence and reproduction
+The fixed default comparison uses newly trained CPU behavior cloning and actual executed recordings. Sensor history, dataset alignment, causal raw cameras, corruption cases, native brush invariants and the isolated optional SmolVLA integration retain regression coverage. Obsolete Panda downloads and prior experiment outputs have been removed; current source history remains in git. The core uv lockfile is now tracked alongside the optional integration lockfile.
 
-[VALIDATION.md](VALIDATION.md) holds the dated numerical evidence, protocols, performance measurements and controller tradeoffs. [PHYSICS.md](PHYSICS.md) holds equations, source attribution and physical limitations. [README.md](README.md) holds setup and reproduction commands. Keep measurements in those documents rather than duplicating tables or process transcripts here.
+[VALIDATION.md](VALIDATION.md) contains measured results and denominators; [DEPLOYMENT.md](DEPLOYMENT.md) records public-source disagreements, installation assumptions and the remaining physical bring-up work. Public inertia, rotor dynamics, mount calibration, force sensing, brush/ink parameters and real-time transport remain unverified on hardware. The simulator has no authority to enable or stop the real arm.
 
-The completed audit covers 5,460 broader-cohort episodes, 800 plant-only material perturbations, multi-seed training, native beam/contact sensitivity and reduced ink/timestep checks. The fixed four-controller comparison and exploratory pressure/ink objectives must remain distinct. Glyph-bootstrap intervals are conditional on the fixed checkpoint and three material draws, not training or hardware uncertainty.
-
-## Engineering priorities
-
-- Keep world coordinates, brush contacts, ink raster, scoring and 3D texture placement consistent. Qualitative recordings must show actual executed deposition, including unintended marks.
-- Keep source and documentation focused on the current model. Git provides source history; `runs/` contains descriptive experiment outputs, not versioned source trees.
-- Run `make check` and `make validate` after simulation changes. Add focused invariant or integration tests for corrections; numerical agreement alone cannot validate visual representation.
-- Record configuration, seeds, dependencies and source/checkpoint hashes with scientific results. Do not imply that a changed renderer or controller has rerun the broad numerical study unless it has.
-- Keep sensor actors separate from privileged teacher/evaluation channels. Record aligned policy episodes independently of demonstration movies, and use paired calibration/sensing stress cases without implying measured hardware distributions.
-- Default to headless operation. Measure throughput without competing jobs and distinguish component microbenchmarks from whole-simulator performance.
-- Keep SmolVLA's optional locked stack independent of the small-policy baseline. Reuse native recordings for causal, memory-mapped training inputs; keep counterfactual recovery targets separate from executed actions, preserve warm-start split lineage and adapter reload checks, and distinguish recorded-state accuracy, closed-loop drawing quality and real-time deadlines.
-
-## Physical limits
-
-The brush, ink, paper and robot setup are uncalibrated. Reduced bundles omit distributed inertia; native rods omit inter-hair locking and capillary clumping. Ink supply is continuous, and pressure, tilt and timing are procedural. Better tracking does not establish calligraphy mastery, aesthetic quality or hardware readiness.
+The quick suite is 288 tests (4.22–4.29 s pytest; 4.67–4.78 s including Make/lint/formatting across four isolated runs). Redundant CLI/argument permutations and repeated full-character boundary tests were removed. Short executed traces, coarse/fine-timestep beam recovery and a combined FFmpeg timing/padding test preserve substantive invariants. Cached model templates improve repeated environment setup while every environment receives independent mutable physics/rendering arrays.

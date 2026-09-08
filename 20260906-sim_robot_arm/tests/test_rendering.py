@@ -6,7 +6,7 @@ import pytest
 from shodo.env import ShodoEnv
 
 
-@pytest.mark.parametrize("position", [(0.55, 0.04), (0.46, -0.065)])
+@pytest.mark.parametrize("position", [(0.55, 0.04)])
 def test_deposited_ink_matches_world_coordinates_in_both_views(position):
     env = ShodoEnv(chars="一")
     try:

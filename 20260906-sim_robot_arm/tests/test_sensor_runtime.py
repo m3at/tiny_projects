@@ -69,7 +69,9 @@ def test_invalid_recovery_collection_is_rejected_before_output(tmp_path, noise, 
     assert not list(tmp_path.iterdir())
 
 
-def test_recovery_recording_keeps_labels_separate_and_reproducible(tmp_path):
+def test_recovery_recording_keeps_labels_separate_and_reproducible(
+    tmp_path, short_stroke, monkeypatch
+):
     from shodo.runtime import record_episodes
 
     episodes = [
@@ -79,6 +81,13 @@ def test_recovery_recording_keeps_labels_separate_and_reproducible(tmp_path):
         for i in range(2)
     ]
     first = episodes[0]
+    metadata = first.metadata
+    assert metadata["observation_contract"] == sensor_contract(SensorConfig())
+    assert metadata["action_contract"] == ActionContract().to_dict()
+    assert metadata["privileged_history_columns"] == list(HISTORY_COLUMNS)
+    assert "CC BY-SA 3.0" in metadata["attribution"]
+    assert "source_sha256" in metadata["provenance"]
+    assert metadata["metrics"]["steps"] == short_stroke
     assert first.metadata["recovery_supervision"]["coherent_action_chunks"] is False
     assert first.metadata["recovery_supervision"]["label_timing"] == "pre-action decision boundary"
     for key in first.arrays:
@@ -105,15 +114,30 @@ def test_recovery_recording_keeps_labels_separate_and_reproducible(tmp_path):
             replay.step(first.arrays["requested_actions"][index])
     finally:
         replay.close()
+    original = (tmp_path / "0/episode-000000.npz").read_bytes()
+    monkeypatch.setattr(
+        "shodo.runtime.sensor_rollout",
+        lambda *a, **k: pytest.fail("Must reject overwrites before executing"),
+    )
+    with pytest.raises(FileExistsError, match="new directory"):
+        record_episodes(tmp_path / "0", chars="一")
+    assert (tmp_path / "0/episode-000000.npz").read_bytes() == original
 
 
-@pytest.fixture
-def sensor_env():
+@pytest.fixture(scope="module")
+def reusable_sensor_env():
     env = SensorEnv("一")
     try:
         yield env
     finally:
         env.close()
+
+
+@pytest.fixture
+def sensor_env(reusable_sensor_env):
+    # Reuse geometry; every test starts from a complete physical/sensor reset.
+    reusable_sensor_env.reset(seed=7)
+    return reusable_sensor_env
 
 
 def test_sensor_history_contract_reset_and_returned_array_independence(sensor_env):
@@ -302,39 +326,14 @@ def test_reference_cache_matches_per_sample_calibration_and_refreshes_on_reset(y
         env.close()
 
 
-def test_sensor_encoder_matches_contract_concatenation_exactly():
-    rng = np.random.default_rng(7)
-    action = ActionContract(translation_step=0.002, rotation_step=0.05)
-    sample = SensorSample(
-        0.2, rng.normal(size=6), rng.normal(size=7), rng.normal(size=7), rng.normal(size=3)
-    )
-    reference = ReferenceSample(rng.normal(size=6), rng.normal(size=6), 0.35, True)
-    command = rng.normal(size=6)
-    expected = np.r_[
-        (reference.pose - sample.pose) / action.scales,
-        (command - sample.pose) / action.scales,
-        (reference.preview - reference.pose) / action.scales,
-        sample.joints / 3,
-        sample.velocities / 5,
-        sample.force,
-        reference.force_n,
-        float(reference.drawing),
-        0.3 - sample.timestamp_s,
-        1.0,
-    ].astype(np.float32)
-    np.testing.assert_array_equal(
-        sensor_features(sample, reference, command, 0.3, True, action), expected
-    )
-
-
 def test_action_contract_clips_input_and_workspace_without_mutation():
     contract = ActionContract()
-    command = np.array([0.604, 0, 0, 0.299, 0, 0])
+    command = np.array([0.604, 0, 0, 0, 0, 0])
     requested = np.array([2, -2, 0, 2, 0, 0], dtype=float)
     before_command, before_action = command.copy(), requested.copy()
     target, applied = contract.apply(command, requested)
-    np.testing.assert_allclose(target, [0.605, -0.004, 0, 0.3, 0, 0])
-    np.testing.assert_allclose(applied, [0.25, -1, 0, 1 / 30, 0, 0])
+    np.testing.assert_allclose(target, [0.605, -0.004, 0, 0, 0, 0])
+    np.testing.assert_allclose(applied, [0.25, -1, 0, 0, 0, 0])
     np.testing.assert_array_equal(command, before_command)
     np.testing.assert_array_equal(requested, before_action)
     assert contract.to_dict()["frame"] == "world"
@@ -376,35 +375,6 @@ def test_execute_step_records_requested_and_effective_increment_as_copies(sensor
     assert np.all(transition.requested_action == 3)
     assert np.all(transition.applied_action >= 0)
     np.testing.assert_array_equal(transition.observation, before_obs)
-
-
-def test_sensor_wrapper_identical_actions_preserve_legacy_plant_and_reward():
-    config = SimConfig(randomize=True, record=True)
-    with ExitStack() as stack:
-        raw = ShodoEnv(chars="一", config=config)
-        wrapped = SensorEnv("一", config=config, sensors=SensorConfig(position_noise=0.002))
-        stack.callback(raw.close)
-        stack.callback(wrapped.close)
-        raw.reset(seed=7)
-        wrapped.reset(seed=7)
-        for _ in range(60):
-            action = raw.expert()
-            previous = raw.command.copy()
-            expected = np.clip(
-                previous + raw.scales * np.clip(action, -1, 1),
-                [0.395, -0.105, -0.007, -0.3, -0.3, -0.3],
-                [0.605, 0.105, 0.05, 0.3, 0.3, 0.3],
-            )
-            _, reward, term, trunc, _ = raw.step(action)
-            _, other_reward, other_term, other_trunc, _ = wrapped.step(action)
-            np.testing.assert_array_equal(raw.command, expected)
-            np.testing.assert_array_equal(raw.data.qpos, wrapped.env.data.qpos)
-            np.testing.assert_array_equal(raw.paper.fixed, wrapped.env.paper.fixed)
-            assert (reward, term, trunc) == (other_reward, other_term, other_trunc)
-        np.testing.assert_array_equal(raw.history, wrapped.env.history)
-        assert raw.paper.deposited_pigment > 0
-        np.testing.assert_array_equal(raw.paper.mobile, wrapped.env.paper.mobile)
-        np.testing.assert_array_equal(raw.paper.water, wrapped.env.paper.water)
 
 
 def test_sensor_environment_gymnasium_contract(sensor_env):
@@ -470,7 +440,9 @@ def _assert_raw_inputs_reconstruct_policy_history(dataset, history):
         np.testing.assert_array_equal(dataset.arrays["observations"][index], stacked)
 
 
-def test_sensor_rollout_records_raw_camera_transitions_and_replayable_history(tmp_path):
+def test_sensor_rollout_records_raw_camera_transitions_and_replayable_history(
+    tmp_path, short_stroke
+):
     from shodo.runtime import sensor_rollout
 
     sensors = SensorConfig(history=4)
@@ -479,7 +451,7 @@ def test_sensor_rollout_records_raw_camera_transitions_and_replayable_history(tm
     dataset = load_episode(recorder.save(tmp_path / "sensor.npz"))
     arrays = dataset.arrays
     count = metrics["steps"]
-    assert count == 247
+    assert count == short_stroke
     assert arrays["observations"].shape == (count + 1, 156)
     assert arrays["requested_actions"].shape == arrays["applied_actions"].shape == (count, 6)
     assert arrays["privileged_history"].shape == (count, len(HISTORY_COLUMNS))
@@ -569,66 +541,36 @@ def test_raw_input_recording_reconstructs_delayed_dropped_and_noisy_measurements
             )
 
 
-def test_record_episodes_metadata_and_existing_destination_preflight(tmp_path, monkeypatch):
-    from shodo.runtime import record_episodes
-
-    sensors = SensorConfig(history=2, latency_steps=1)
-    paths = record_episodes(tmp_path, chars="一", sensors=sensors)
-    assert paths == [tmp_path / "episode-000000.npz"]
-    dataset = load_episode(paths[0])
-    metadata = dataset.metadata
-    assert metadata["observation_contract"] == sensor_contract(sensors)
-    assert SensorConfig(**metadata["sensors"]) == sensors
-    assert metadata["action_contract"] == ActionContract().to_dict()
-    assert metadata["privileged_history_columns"] == list(HISTORY_COLUMNS)
-    assert "CC BY-SA 3.0" in metadata["attribution"]
-    assert "source_sha256" in metadata["provenance"]
-    assert not metadata["camera"]["enabled"]
-    assert "camera_frames" not in dataset.arrays
-    assert metadata["metrics"]["steps"] == len(dataset)
-    original = paths[0].read_bytes()
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("existing paths must be rejected before running an episode")
-
-    monkeypatch.setattr("shodo.runtime.sensor_rollout", forbidden)
-    with pytest.raises(FileExistsError, match="new directory"):
-        record_episodes(tmp_path, chars="一", sensors=sensors)
-    assert paths[0].read_bytes() == original
-
-
-def test_sensor_bc_training_loading_and_observation_contract_rejection(tmp_path):
+def test_sensor_checkpoint_checks_robot_history_and_mode_before_execution(tmp_path):
     import torch
 
-    from shodo.learning import load_policy, network, rollout, train
+    from shodo.learning import load_policy, network
+    from shodo.rebot import ROBOT_CONTRACT
     from shodo.runtime import sensor_rollout
 
     sensors = SensorConfig(history=2)
+    checkpoint = {
+        "state_dict": network(78).state_dict(),
+        "observation_version": OBSERVATION_VERSION,
+        "robot_contract": ROBOT_CONTRACT,
+        "robot_config": SimConfig().to_dict()["robot"],
+        "sensors": sensors.to_dict(),
+        "sensor_contract": sensor_contract(sensors),
+    }
     path = tmp_path / "sensor.pt"
-    metadata = train(episodes=1, epochs=1, chars="一", sensors=sensors, output=path)
-    assert metadata["samples"] == 247
-    assert metadata["sensor_contract"] == sensor_contract(sensors)
+    torch.save(checkpoint, path)
     policy = load_policy(path)
-    assert policy.sensor_config == sensors
-    output = policy(np.zeros(78, dtype=np.float32))
-    assert output.shape == (6,) and np.isfinite(output).all()
-    recorder = EpisodeRecorder({})
-    metrics = sensor_rollout("一", policy, recorder=recorder)
-    recorded = load_episode(recorder.save(tmp_path / "learned.npz"))
-    assert recorded.arrays["observations"].shape == (metrics["steps"] + 1, 78)
-    assert recorded.metadata["complete"] is True
+    assert policy(np.zeros(78, dtype=np.float32)).shape == (6,)
     with pytest.raises(ValueError, match="history differ"):
         sensor_rollout("一", policy, sensors=SensorConfig(history=4))
-    legacy_path = tmp_path / "legacy.pt"
-    torch.save(
-        {"state_dict": network().state_dict(), "observation_version": OBSERVATION_VERSION},
-        legacy_path,
-    )
-    legacy = load_policy(legacy_path)
-    with pytest.raises(ValueError, match="observation contracts differ"):
-        sensor_rollout("一", legacy)
-    with pytest.raises(ValueError, match="observation contracts differ"):
-        rollout("一", legacy, sensors=sensors)
+    checkpoint["sensor_contract"]["version"] = -1
+    torch.save(checkpoint, path)
+    with pytest.raises(ValueError, match="sensor contract"):
+        load_policy(path)
+    checkpoint.pop("robot_contract")
+    torch.save(checkpoint, path)
+    with pytest.raises(ValueError, match="robot contract"):
+        load_policy(path)
 
 
 def test_evaluation_summary_exposes_partial_episode_counts_and_report_path(

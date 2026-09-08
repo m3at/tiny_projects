@@ -35,21 +35,21 @@ class ActionContract:
         scales = self.scales
         result = np.clip(
             command + scales * np.clip(action, -1, 1),
-            [0.395, -0.105, -0.007, -0.3, -0.3, -0.3],
-            [0.605, 0.105, 0.05, 0.3, 0.3, 0.3],
+            [0.395, -0.105, -0.007, 0.0, 0.0, 0.0],
+            [0.605, 0.105, 0.05, 0.0, 0.0, 0.0],
         )
         return result, (result - command) / scales
 
     def to_dict(self):
         return {
-            "version": 1,
+            "version": 2,
             **asdict(self),
             "frame": "world",
-            "rotation": "additive rotvec coordinates; R=Exp(rotvec)@DOWN",
+            "rotation": "vertical rigid brush; rotation increments ignored; R=DOWN",
             "units": ["m", "m", "m", "rad", "rad", "rad"],
             "normalized_bounds": [-1, 1],
-            "command_lower": [0.395, -0.105, -0.007, -0.3, -0.3, -0.3],
-            "command_upper": [0.605, 0.105, 0.05, 0.3, 0.3, 0.3],
+            "command_lower": [0.395, -0.105, -0.007, 0.0, 0.0, 0.0],
+            "command_upper": [0.605, 0.105, 0.05, 0.0, 0.0, 0.0],
         }
 
 
@@ -147,8 +147,8 @@ def sensor_contract(config):
             "0:6": "reference minus measured tool pose / action scales",
             "6:12": "command minus measured tool pose / action scales",
             "12:18": "three-step reference preview delta / action scales",
-            "18:25": "joint angles / 3 rad",
-            "25:32": "joint velocities / 5 rad/s",
+            "18:25": "six joint angles / 3 rad; seventh slot reserved zero",
+            "25:32": "six joint velocities / 5 rad/s; seventh slot reserved zero",
             "32:35": "world tool contact force, N (ideal compensated force proxy)",
             "35": "authored target force, N",
             "36": "reference drawing flag (not sensed contact)",
@@ -159,7 +159,7 @@ def sensor_contract(config):
     }
 
 
-def classical_action(sample, reference, command, action, *, force_gain=0.02):
+def classical_action(sample, reference, command, action, *, force_gain=0.0008):
     """Measured-pose proportional tracking with normal-force feedback.
 
     No contact-center compensation or hidden bristle-state access. The force gain

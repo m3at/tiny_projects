@@ -19,6 +19,7 @@ from shodo.contracts import SENSOR_FEATURES, SensorConfig, sensor_contract
 from shodo.data import TEST, TRAIN
 from shodo.device import resolve_device
 from shodo.env import ACTIONS, INK_LOAD_THRESHOLD, OBSERVATION_VERSION, OBSERVATIONS, ShodoEnv
+from shodo.rebot import ROBOT_CONTRACT
 
 
 def network(observations=OBSERVATIONS):
@@ -37,6 +38,8 @@ def load_policy(file="runs/bc.pt", *, device="cpu"):
     checkpoint = torch.load(file, map_location="cpu", weights_only=True)
     if checkpoint.get("observation_version") != OBSERVATION_VERSION:
         raise ValueError("Checkpoint observation contract is incompatible; retrain the policy")
+    if checkpoint.get("robot_contract") != ROBOT_CONTRACT:
+        raise ValueError("Checkpoint robot contract is incompatible; retrain for B601-RS")
     sensors = SensorConfig(**checkpoint["sensors"]) if checkpoint.get("sensors") else None
     if checkpoint.get("sensor_contract") != (sensor_contract(sensors) if sensors else None):
         raise ValueError("Checkpoint sensor contract is incompatible; retrain the policy")
@@ -51,6 +54,7 @@ def load_policy(file="runs/bc.pt", *, device="cpu"):
     predict.device = str(resolved)
     predict.requested_device = device
     predict.sensor_config = sensors
+    predict.robot_config = checkpoint["robot_config"]
     predict.checkpoint_provenance = {
         "path": str(Path(file).resolve()),
         "sha256": hashlib.sha256(Path(file).read_bytes()).hexdigest(),
@@ -130,6 +134,8 @@ def _train(episodes, epochs, seed, path, config, chars, metadata, device, sensor
     temporary = path.with_suffix(".pending.pt")
     torch.save(
         {
+            "robot_contract": ROBOT_CONTRACT,
+            "robot_config": env.unwrapped.config.to_dict()["robot"],
             "state_dict": {key: value.cpu() for key, value in model.state_dict().items()},
             "observation_version": OBSERVATION_VERSION,
             "sensor_contract": sensor_contract(sensors) if sensors else None,
@@ -200,6 +206,11 @@ def rollout(
         if trained and trained.history != sensors.history:
             raise ValueError("Policy and environment sensor history differ")
     cfg = replace(config or SimConfig(), record=True)
+    if callable(policy) and hasattr(policy, "robot_config"):
+        from shodo.config import RobotConfig
+
+        if RobotConfig(**policy.robot_config) != cfg.robot:
+            raise ValueError("Checkpoint robot configuration differs from execution setup")
     env = (
         SensorEnv(chars=char, config=cfg, sensors=sensors)
         if sensors
@@ -322,6 +333,22 @@ def rollout(
             "max_penetration_mm": getattr(env.brush, "max_penetration", 0.0) * 1000,
             "orientation_rmse_deg": float(np.rad2deg(np.sqrt(np.mean(history[:, 16] ** 2)))),
             "max_torque_fraction": env.peak_torque_fraction,
+            "peak_joint_speed_rad_s": env.peak_joint_speed.tolist(),
+            "peak_joint_torque_nm": env.peak_joint_torque.tolist(),
+            "minimum_joint_margin_rad": env.min_joint_margin,
+            "forbidden_contact_substeps": env.forbidden_contact_steps,
+            "stop_reasons": [
+                name
+                for name, active in (
+                    ("force_limit", env.peak_force > 2.0),
+                    ("joint_speed", np.max(env.peak_joint_speed) > 1.5 * cfg.robot.joint_speed),
+                    ("collision", env.forbidden_contact_steps > 0),
+                    ("joint_limit", env.min_joint_margin < 0),
+                    ("solver_warning", (env.data.warning.number > 0).any()),
+                    ("nonfinite_state", not np.isfinite(env.data.qpos).all()),
+                )
+                if active
+            ],
             "force_impulse_n_s": env.force_impulse.tolist(),
             "pigment_mass_error": float(
                 abs(env.paper.mobile.sum() + env.paper.fixed.sum() - env.paper.deposited_pigment)

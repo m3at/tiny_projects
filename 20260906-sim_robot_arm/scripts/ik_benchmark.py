@@ -9,7 +9,7 @@ import numpy as np
 
 from shodo.artifacts import provenance
 from shodo.config import SimConfig, load_config
-from shodo.robot import Panda
+from shodo.robot import RebotArm
 
 
 def main():
@@ -18,7 +18,7 @@ def main():
         ("reduced", SimConfig()),
         ("native", load_config(Path("experiments/cable.toml"))),
     ):
-        robot = Panda(config.timestep, config.brush)
+        robot = RebotArm(config.timestep, config.brush)
         robot.reset(np.array([0.5, 0, 0.025]), np.zeros(3))
         data = mujoco.MjData(robot.model)
         data.qpos[:] = robot.data.qpos

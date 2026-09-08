@@ -71,6 +71,44 @@ class InkConfig:
 
 
 @dataclass(frozen=True)
+class RobotConfig:
+    """B601-RS setup assumptions, not manufacturer-qualified operating limits."""
+
+    base_xyz: tuple = (0.20, 0.0, -0.005)
+    mount_xyz: tuple = (0.0, 0.0, 0.0)
+    mount_rpy: tuple = (0.0, 0.0, 0.0)
+    handle_mass: float = 0.04
+    armature: float = 0.002  # estimated reflected motor inertia, kg m²
+    kp: tuple = (50.0, 150.0, 150.0, 50.0, 50.0, 50.0)
+    kd: tuple = (3.0, 10.0, 10.0, 5.0, 4.0, 4.0)
+    torque_limits: tuple = (11.0, 11.0, 11.0, 5.0, 5.0, 5.0)
+    joint_speed: float = 0.8  # deliberately below published motor speeds, rad/s
+    joint_acceleration: float = 4.0  # experiment limit, rad/s²
+
+    def __post_init__(self):
+        for name, size in (
+            ("base_xyz", 3),
+            ("mount_xyz", 3),
+            ("mount_rpy", 3),
+            ("kp", 6),
+            ("kd", 6),
+            ("torque_limits", 6),
+        ):
+            values = tuple(getattr(self, name))
+            if len(values) != size or not all(math.isfinite(v) for v in values):
+                raise ValueError(f"Robot {name} requires {size} finite values")
+            if size == 6 and any(v <= 0 for v in values):
+                raise ValueError(f"Robot {name} must be positive")
+            object.__setattr__(self, name, values)
+        for name in ("handle_mass", "armature", "joint_speed", "joint_acceleration"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"Robot {name} must be finite and positive")
+        if any(v > limit for v, limit in zip(self.torque_limits, (11, 11, 11, 5, 5, 5))):
+            raise ValueError("Experiment torques must not exceed published rated motor torques")
+
+
+@dataclass(frozen=True)
 class SimConfig:
     timestep: float = 0.002
     substeps: int = 10
@@ -85,6 +123,7 @@ class SimConfig:
     force_feedback_gain: float = 0.0008  # m/N, teacher's normal-force correction
     material_variation: float = 0.2
     force_tolerance: float = 0.3  # N, reward scale
+    robot: RobotConfig = field(default_factory=RobotConfig)
     brush: BrushConfig = field(default_factory=BrushConfig)
     ink: InkConfig = field(default_factory=InkConfig)
 
@@ -132,6 +171,7 @@ def load_config(path: Path | None):
 def config_from_dict(values):
     values = dict(values)
     return SimConfig(
+        robot=RobotConfig(**values.pop("robot", {})),
         brush=BrushConfig(**values.pop("brush", {})),
         ink=InkConfig(**values.pop("ink", {})),
         **values,

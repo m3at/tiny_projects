@@ -44,7 +44,7 @@ def test_cached_geometry_cannot_leak_mutations_between_episodes():
         np.testing.assert_array_equal(array, before)
 
 
-def test_unloaded_geometric_contact_is_not_reported_as_ink_accuracy(monkeypatch):
+def test_unloaded_geometric_contact_is_not_reported_as_ink_accuracy(monkeypatch, short_stroke):
     update = Brush.update
 
     def unloaded(self, *args, **kwargs):

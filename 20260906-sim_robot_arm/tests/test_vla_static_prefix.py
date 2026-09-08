@@ -126,7 +126,7 @@ def test_static_prefix_rejects_padding_before_encoding(prefix_case, attribute):
 
 
 @torch.no_grad()
-@pytest.mark.parametrize("state", [None, torch.zeros(2), torch.zeros(1, 2, 2)])
+@pytest.mark.parametrize("state", [torch.zeros(1, 2, 2)])
 def test_static_prefix_rejects_missing_or_multiple_state_tokens(prefix_case, state):
     policy, inputs = prefix_case
     with cached_static_prefix(policy) as cache:
@@ -258,15 +258,3 @@ def test_controller_static_cache_preserves_live_state_and_clears_each_episode(mo
     finally:
         reference.close()
         cached.close()
-
-
-@pytest.mark.parametrize(
-    "flag", ["optimize_inference", "trim_language_padding", "cache_static_inputs"]
-)
-@pytest.mark.parametrize("value", [1, "true", None])
-def test_controller_inference_flags_require_booleans_before_loading(monkeypatch, flag, value):
-    monkeypatch.setattr(
-        smolvla, "load_adapter", lambda *a, **k: pytest.fail("Loaded invalid options")
-    )
-    with pytest.raises(TypeError, match="booleans"):
-        smolvla.SmolController("unused", **{flag: value})

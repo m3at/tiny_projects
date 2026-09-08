@@ -9,14 +9,14 @@ from shodo.env import OBSERVATION_VERSION, ShodoEnv
 from shodo.rl import InkObjective, train_ppo
 
 
-def test_ink_objective_changes_only_drawing_reward():
+def test_ink_objective_changes_only_drawing_reward(short_stroke):
     plain, shaped = ShodoEnv(chars="一"), InkObjective(ShodoEnv(chars="一"))
     bonuses = []
     try:
         a, _ = plain.reset(seed=7)
         b, _ = shaped.reset(seed=7)
         np.testing.assert_array_equal(a, b)
-        for _ in range(90):
+        for _ in range(short_stroke):
             action = plain.expert()
             a, reward, done, truncated, _ = plain.step(action)
             b, shaped_reward, shaped_done, shaped_truncated, info = shaped.step(action)

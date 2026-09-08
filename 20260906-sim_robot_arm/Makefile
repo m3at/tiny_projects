@@ -1,4 +1,4 @@
-.PHONY: setup data check train ppo residual evaluate demo validate benchmark mechanics figures build record robustness
+.PHONY: setup data prepare check train ppo residual evaluate demo validate benchmark mechanics figures build record robustness
 .PHONY: smolvla-setup smolvla-prepare smolvla-train smolvla-verify smolvla-evaluate smolvla-demo
 CHARS ?= 永
 STEPS ?= 32768
@@ -12,6 +12,8 @@ REPEATS ?= 3
 DEVICE ?= cpu
 CAMERA_EVERY ?= 0
 EXPERT_NOISE ?=
+# Use the project environment even when the caller has activated another venv.
+unexport VIRTUAL_ENV
 COMMON = --run-dir "$(RUN_DIR)" --seed $(SEED) --device $(DEVICE) $(if $(CONFIG),--config "$(CONFIG)",) $(if $(OBSERVATION),--observation $(OBSERVATION),) $(if $(SENSOR_CONFIG),--sensor-config "$(SENSOR_CONFIG)",)
 VLA_DEVICE ?= auto
 VLA_STEPS ?= 100
@@ -26,6 +28,8 @@ setup:
 	@if test -f uv.lock; then uv sync --locked; else uv sync; fi
 data:
 	uv run shodo data
+prepare: data
+	uv run shodo prepare $(COMMON)
 check:
 	uv run ruff check .
 	uv run ruff format --check src tests scripts

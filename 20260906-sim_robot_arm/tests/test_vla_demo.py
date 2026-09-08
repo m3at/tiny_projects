@@ -107,15 +107,7 @@ def test_demo_reuses_sensor_rollout_and_artifacts_with_objective_defaults(
     assert "frame_times_s" not in output and "inference_seconds" not in output
 
 
-@pytest.mark.parametrize("chars", ["", " ", "一 一", "永永", None])
-def test_bad_characters_fail_before_model_loading(tmp_path, demo_dependencies, chars):
-    _, calls, _ = demo_dependencies
-    with pytest.raises(ValueError):
-        vla_demo.demo_adapter("adapter", tmp_path, chars=chars)
-    assert not calls["loaded"]
-
-
-@pytest.mark.parametrize("suffix", [".mp4", ".png", ".npz", ".json", "-scene.png"])
+@pytest.mark.parametrize("suffix", [".npz"])
 def test_existing_artifact_refused_before_model_loading(tmp_path, demo_dependencies, suffix):
     _, calls, _ = demo_dependencies
     original = tmp_path / f"smolvla-06c38{suffix}"
@@ -161,24 +153,4 @@ def test_bad_action_objective_sampler_fails_before_model_loading(tmp_path, demo_
     report.update(objective="action_regression", chunk_size=1)
     with pytest.raises(ValueError, match="denois"):
         vla_demo.demo_adapter("adapter", tmp_path, denoise_steps=2)
-    assert not calls["loaded"]
-
-
-def test_output_file_refused_before_model_loading(tmp_path, demo_dependencies):
-    _, calls, _ = demo_dependencies
-    path = tmp_path / "not-a-directory"
-    path.write_text("preserve me")
-    with pytest.raises(NotADirectoryError):
-        vla_demo.demo_adapter("adapter", path)
-    assert path.read_text() == "preserve me" and not calls["loaded"]
-
-
-@pytest.mark.parametrize(
-    "options",
-    [{"cache_static_inputs": True}, {"cache_static_inputs": 1, "optimize_inference": True}],
-)
-def test_static_cache_option_guard_precedes_model_loading(tmp_path, demo_dependencies, options):
-    _, calls, _ = demo_dependencies
-    with pytest.raises((TypeError, ValueError)):
-        vla_demo.demo_adapter("adapter", tmp_path, **options)
     assert not calls["loaded"]

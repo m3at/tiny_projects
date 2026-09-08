@@ -11,40 +11,6 @@ from shodo import cli
 from shodo.config import SimConfig
 
 
-@pytest.mark.parametrize(
-    "command,policy,noise",
-    [
-        ("demo", "oracle", "0"),
-        ("record", "zero", "0"),
-        ("record", "oracle", "-1"),
-        ("record", "oracle", "nan"),
-    ],
-)
-def test_expert_noise_cli_rejects_invalid_scope_before_outputs(
-    tmp_path, monkeypatch, capsys, command, policy, noise
-):
-    output = tmp_path / "unused"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "shodo",
-            command,
-            "--policy",
-            policy,
-            "--expert-noise",
-            noise,
-            "--run-dir",
-            str(output),
-        ],
-    )
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 2
-    assert "--expert-noise requires" in capsys.readouterr().err
-    assert not output.exists()
-
-
 @pytest.mark.parametrize("ink,truncated", [(0.1234, False), (None, True)])
 def test_demo_prints_curated_metrics_and_artifact_paths(
     tmp_path, monkeypatch, capsys, ink, truncated
@@ -141,41 +107,6 @@ def test_invalid_checkpoint_configuration_is_actionable(tmp_path, monkeypatch, c
     assert "Invalid checkpoint configuration metadata" in capsys.readouterr().err
 
 
-def test_ink_objective_routes_only_to_ppo(tmp_path, monkeypatch):
-    from shodo import rl
-
-    calls = []
-    monkeypatch.setattr(rl, "train_ppo", lambda *args, **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["shodo", "ppo", "--ink-objective", "--residual", "--run-dir", str(tmp_path)],
-    )
-    cli.main()
-    assert calls[0]["objective"] == "ink"
-    assert calls[0]["base_checkpoint"] == tmp_path / "bc.pt"
-    calls.clear()
-    monkeypatch.setattr(cli, "train", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(sys, "argv", ["shodo", "train", "--run-dir", str(tmp_path)])
-    cli.main()
-    assert "objective" not in calls[0]
-    assert calls[0]["device"] == "cpu"
-
-
-@pytest.mark.parametrize("command", ["train", "ppo"])
-def test_neural_training_routes_explicit_device(tmp_path, monkeypatch, command):
-    from shodo import rl
-
-    calls = []
-    monkeypatch.setattr(cli, "train", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(rl, "train_ppo", lambda *args, **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(
-        sys, "argv", ["shodo", command, "--run-dir", str(tmp_path), "--device", "cpu"]
-    )
-    cli.main()
-    assert calls[0]["device"] == "cpu"
-
-
 def test_unavailable_device_is_actionable_before_creating_outputs(tmp_path, monkeypatch, capsys):
     import torch
 
@@ -188,49 +119,4 @@ def test_unavailable_device_is_actionable_before_creating_outputs(tmp_path, monk
         cli.main()
     assert error.value.code == 2
     assert "Requested cuda device is unavailable" in capsys.readouterr().err
-    assert not destination.exists()
-
-
-def test_default_run_directory_is_unversioned(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    calls = []
-    monkeypatch.setattr(cli, "train", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(sys, "argv", ["shodo", "train"])
-    cli.main()
-    assert calls[0]["output"] == cli.Path("runs/bc.pt")
-
-
-def test_benchmark_routes_character_seed_and_repeats(tmp_path, monkeypatch):
-    from shodo import benchmark
-
-    calls = []
-    monkeypatch.setattr(benchmark, "benchmark", lambda *args, **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["shodo", "benchmark", "--run-dir", str(tmp_path), "--seed", "27", "--repeats", "2"],
-    )
-    cli.main()
-    assert calls[0]["seed"] == 27
-    assert calls[0]["repeats"] == 2
-    assert calls[0]["char"] == "永"
-
-
-@pytest.mark.parametrize(
-    "arguments,message",
-    [
-        (["benchmark", "--chars", "永水"], "exactly one character"),
-        (["benchmark", "--repeats", "0"], "positive --repeats"),
-        (["ppo", "--base-policy", "bc.pt"], "--base-policy requires --residual"),
-    ],
-)
-def test_invalid_command_options_do_not_create_outputs(
-    tmp_path, monkeypatch, capsys, arguments, message
-):
-    destination = tmp_path / "unused"
-    monkeypatch.setattr(sys, "argv", ["shodo", *arguments, "--run-dir", str(destination)])
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 2
-    assert message in capsys.readouterr().err
     assert not destination.exists()

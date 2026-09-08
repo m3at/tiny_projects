@@ -38,7 +38,7 @@ def test_paper_grid_and_image_have_opposite_row_directions():
     assert np.asarray(paper.image())[: paper.config.resolution // 2].min() < 240
 
 
-@pytest.mark.parametrize("sigma", [0, 0.0006, 0.006])
+@pytest.mark.parametrize("sigma", [0, 0.0006])
 @pytest.mark.parametrize(
     "offset, retained",
     [

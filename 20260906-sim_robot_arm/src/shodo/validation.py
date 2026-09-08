@@ -100,6 +100,11 @@ def validate(
                 checks[prefix + key] = row[key] is not None and row[key] > threshold
             checks[prefix + "pigment_conservation"] = row["pigment_mass_error"] < 1e-8
             checks[prefix + "torque_limits"] = row["max_torque_fraction"] <= 1 + 1e-12
+            checks[prefix + "no_arm_collisions"] = row["forbidden_contact_substeps"] == 0
+            checks[prefix + "joint_margin"] = row["minimum_joint_margin_rad"] > 0.01
+            checks[prefix + "joint_speed"] = (
+                max(row["peak_joint_speed_rad_s"]) < 1.5 * config.robot.joint_speed
+            )
             if config.brush.backend == "cable":
                 checks[prefix + "penetration"] = row["max_penetration_mm"] < 0.15
     learned = np.mean([r["rmse_mm"] for r in results[algorithm]])

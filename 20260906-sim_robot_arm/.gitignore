@@ -7,4 +7,4 @@ runs/
 *.egg-info/
 dist/
 uv.lock
-!integrations/smolvla/uv.lock
+integrations/smolvla/uv.lock

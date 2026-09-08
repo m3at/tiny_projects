@@ -46,8 +46,8 @@ class SensorEnv(gym.Wrapper):
         return SensorSample(
             float(env.data.time),
             pose,
-            env.data.qpos[:7].copy() + rng.normal(0, cfg.joint_noise, 7),
-            env.data.qvel[:7].copy() + rng.normal(0, cfg.velocity_noise, 7),
+            np.r_[env.data.qpos[:6] + rng.normal(0, cfg.joint_noise, 6), 0.0],
+            np.r_[env.data.qvel[:6] + rng.normal(0, cfg.velocity_noise, 6), 0.0],
             env.brush.force.copy() + cfg.force_bias + rng.normal(0, cfg.force_noise, 3),
         )
 

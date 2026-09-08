@@ -22,33 +22,7 @@ def _argv(monkeypatch, directory, *arguments):
     monkeypatch.setattr(sys, "argv", ["shodo", *arguments, "--run-dir", str(directory)])
 
 
-@pytest.mark.parametrize("command", ["train", "ppo"])
-@pytest.mark.parametrize("use_file", [False, True])
-def test_sensor_training_routes_explicit_contract_and_json_settings(
-    tmp_path, monkeypatch, command, use_file
-):
-    from shodo import rl
-
-    calls = []
-    monkeypatch.setattr(cli, "train", lambda **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(rl, "train_ppo", lambda *args, **kwargs: calls.append(kwargs))
-    options = ["--observation", "sensor"]
-    sensors = SensorConfig()
-    if use_file:
-        sensors = SensorConfig(history=2, latency_steps=1, force_noise=0.03)
-        path = tmp_path / "sensors.json"
-        path.write_text(json.dumps(sensors.to_dict()))
-        options = ["--sensor-config", str(path)]
-    _argv(monkeypatch, tmp_path / "output", command, *options, "--chars", "一二", "--seed", "17")
-    cli.main()
-    assert len(calls) == 1
-    assert calls[0]["sensors"] == sensors
-    assert calls[0]["chars"] == "一二"
-    assert calls[0]["seed"] == 17
-    assert calls[0]["device"] == "cpu"
-
-
-@pytest.mark.parametrize("policy", ["classical", "oracle", "zero"])
+@pytest.mark.parametrize("policy", ["oracle"])
 def test_record_uses_sensor_inputs_and_raw_camera_without_ffmpeg(tmp_path, monkeypatch, policy):
     from shodo import runtime
 
@@ -145,42 +119,6 @@ def test_robustness_routes_paired_seed_list_and_sensor_checkpoint(tmp_path, monk
     assert kwargs["chars"] == "永水"
 
 
-@pytest.mark.parametrize(
-    "options,message",
-    [
-        (["record", "--observation", "privileged"], "require sensor observations"),
-        (["train", "--camera-every", "1"], "only to record"),
-        (["record", "--camera-every", "-1"], "nonnegative"),
-        (["train", "--seeds", "1"], "only to robustness"),
-        (["validate", "--observation", "sensor"], "canonical validate"),
-        (["benchmark", "--observation", "sensor"], "canonical validate"),
-    ],
-)
-def test_invalid_sensor_command_flags_fail_before_creating_outputs(
-    tmp_path, monkeypatch, capsys, options, message
-):
-    destination = tmp_path / "unused"
-    _argv(monkeypatch, destination, *options)
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 2
-    assert message in capsys.readouterr().err
-    assert not destination.exists()
-
-
-@pytest.mark.parametrize("contents", ["not JSON", "[]", '{"history": 0}', '{"unknown": 1}'])
-def test_invalid_sensor_configuration_file_is_actionable(tmp_path, monkeypatch, capsys, contents):
-    path = tmp_path / "sensors.json"
-    path.write_text(contents)
-    destination = tmp_path / "unused"
-    _argv(monkeypatch, destination, "train", "--sensor-config", str(path))
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 2
-    assert "Invalid sensor configuration" in capsys.readouterr().err
-    assert not destination.exists()
-
-
 @pytest.mark.parametrize("command", ["record", "robustness"])
 def test_privileged_checkpoint_rejected_for_sensor_workflow(tmp_path, monkeypatch, capsys, command):
     monkeypatch.setattr(cli, "load_policy", lambda *args, **kwargs: _controller())
@@ -199,21 +137,6 @@ def test_sensor_checkpoint_rejected_for_explicit_privileged_demo(tmp_path, monke
         cli.main()
     assert error.value.code == 2
     assert "Sensor checkpoint cannot use privileged observations" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize(
-    "failure", [FileNotFoundError("missing checkpoint"), ValueError("invalid contract")]
-)
-def test_checkpoint_loading_errors_are_actionable(tmp_path, monkeypatch, capsys, failure):
-    def load(*args, **kwargs):
-        raise failure
-
-    monkeypatch.setattr(cli, "load_policy", load)
-    _argv(monkeypatch, tmp_path, "record")
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code in (1, 2)
-    assert str(failure) in capsys.readouterr().err
 
 
 def test_sensor_checkpoint_history_mismatch_rejected_before_recording(

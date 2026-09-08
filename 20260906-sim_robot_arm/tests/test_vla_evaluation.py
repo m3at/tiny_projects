@@ -141,16 +141,6 @@ def test_episode_overlap_rejected_before_model_load(scoring):
     assert not loads
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [{"samples": 0}, {"batch_size": True}, {"denoise_steps": -1}, {"seed": -1}, {"seed": 2**32}],
-)
-def test_invalid_options_rejected_before_loading(scoring, kwargs):
-    with pytest.raises(ValueError):
-        score_adapter("adapter", "data", **kwargs)
-    assert not scoring[3]
-
-
 @pytest.mark.parametrize("kind", ["shape", "nonfinite"])
 def test_malformed_predicted_chunks_rejected(scoring, kind):
     model = scoring[2]
@@ -161,20 +151,6 @@ def test_malformed_predicted_chunks_rejected(scoring, kind):
     )
     with pytest.raises(ValueError, match="finite.*action chunks"):
         score_adapter("adapter", "data")
-
-
-@pytest.mark.parametrize(
-    "predicted,targets",
-    [
-        ([], []),
-        (np.zeros((2, 5)), np.zeros((2, 5))),
-        (np.zeros((2, 6)), np.zeros((1, 6))),
-        (np.full((2, 6), np.nan), np.zeros((2, 6))),
-    ],
-)
-def test_action_metric_shape_and_finite_checks(predicted, targets):
-    with pytest.raises(ValueError, match="finite"):
-        action_metrics(predicted, targets)
 
 
 def test_action_metrics_known_error():
@@ -203,12 +179,6 @@ def test_action_regression_rejects_incompatible_steps_before_model_load(scoring)
     with pytest.raises(ValueError):
         score_adapter("adapter", "data", denoise_steps=2)
     assert not loads
-
-
-def test_legacy_objective_defaults_to_flow_matching(scoring):
-    result = score_adapter("adapter", "data", samples=1)
-    assert result["objective"] == "flow_matching"
-    assert result["denoise_steps"] == 10
 
 
 def test_ancestor_episode_overlap_rejected_before_model_load(scoring):

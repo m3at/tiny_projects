@@ -23,6 +23,7 @@ from shodo.data import TRAIN
 from shodo.device import resolve_device
 from shodo.env import ACTIONS, INK_LOAD_THRESHOLD, OBSERVATION_VERSION, OBSERVATIONS, ShodoEnv
 from shodo.learning import load_policy
+from shodo.rebot import ROBOT_CONTRACT
 
 
 def _sensors_from_metadata(metadata):
@@ -142,6 +143,7 @@ def train_ppo(
         metadata = {
             "seed": seed,
             "requested_steps": steps,
+            "robot_contract": ROBOT_CONTRACT,
             "train_chars": chars,
             "observation_version": OBSERVATION_VERSION,
             "sensors": sensors.to_dict() if sensors else None,
@@ -172,6 +174,7 @@ def train_ppo(
                 "objective",
                 "sensors",
                 "sensor_contract",
+                "robot_contract",
             ):
                 if previous.get(key) != metadata.get(key):
                     raise ValueError(f"Cannot resume after changing {key}; use a new run directory")
@@ -223,6 +226,8 @@ def load_controller(directory, *, device="cpu"):
     metadata = json.loads((directory / "ppo.json").read_text())
     if metadata.get("observation_version") != OBSERVATION_VERSION:
         raise ValueError("PPO observation contract is incompatible; retrain the policy")
+    if metadata.get("robot_contract") != ROBOT_CONTRACT:
+        raise ValueError("PPO robot contract is incompatible; retrain for B601-RS")
     sensors = _sensors_from_metadata(metadata)
     model = PPO.load(directory / "ppo", device=resolved)
     observations = SENSOR_FEATURES * sensors.history if sensors else OBSERVATIONS
@@ -244,6 +249,7 @@ def load_controller(directory, *, device="cpu"):
     predict.device = str(resolved)
     predict.requested_device = device
     predict.sensor_config = sensors
+    predict.robot_config = metadata["config"]["robot"]
     predict.checkpoint_provenance = {
         "algorithm": "ppo",
         "path": str((directory / "ppo.zip").resolve()),

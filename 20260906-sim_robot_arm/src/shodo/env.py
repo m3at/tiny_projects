@@ -1,4 +1,4 @@
-"""Torque-driven Panda with coupled elastic brush and wet-paper dynamics."""
+"""Torque-driven RebotArm with coupled elastic brush and wet-paper dynamics."""
 
 from dataclasses import replace
 from functools import lru_cache
@@ -14,7 +14,7 @@ from shodo.config import SimConfig
 from shodo.contracts import ActionContract
 from shodo.data import TRAIN, trajectory
 from shodo.ink import Paper
-from shodo.robot import DOWN, Panda
+from shodo.robot import DOWN, RebotArm
 
 OBSERVATION_VERSION = 3
 OBSERVATIONS = 40
@@ -33,7 +33,7 @@ HISTORY_COLUMNS = [
     "q4",
     "q5",
     "q6",
-    "q7",
+    "reserved_joint_slot",
     "stroke_id",
     "normal_force",
     "target_force",
@@ -43,6 +43,10 @@ HISTORY_COLUMNS = [
     "pigment_mass",
     "ink_x",
     "ink_y",
+    *[f"velocity_j{i}_rad_s" for i in range(1, 7)],
+    *[f"command_j{i}_rad" for i in range(1, 7)],
+    *[f"command_velocity_j{i}_rad_s" for i in range(1, 7)],
+    *[f"torque_j{i}_nm" for i in range(1, 7)],
 ]
 
 
@@ -53,12 +57,7 @@ def reference(char, paper_x=0.5, touchdown_speed=0.04):
     path = path.copy()
     path[:, 0] += paper_x
     path = gaussian_filter1d(path, 1.2, axis=0, mode="nearest")
-    velocity = np.gradient(path, axis=0)
-    speed = np.linalg.norm(velocity[:, :2], axis=1)
-    direction = velocity[:, :2] / np.maximum(speed[:, None], 1e-8)
-    tilt = np.c_[-direction[:, 1] * 0.10, direction[:, 0] * 0.10, np.zeros(len(path))]
-    tilt[ids < 0] = 0
-    tilt = gaussian_filter1d(tilt, 4, axis=0, mode="nearest")
+    tilt = np.zeros_like(path)  # Rigid brush remains vertical throughout writing and lifts.
     path.flags.writeable = tilt.flags.writeable = False
     return path, ids, tilt
 
@@ -72,7 +71,7 @@ class ShodoEnv(gym.Env):
         if not chars or render_mode not in (None, "rgb_array"):
             raise ValueError("Expected characters and optional rgb_array render mode")
         self.chars, self.render_mode, self.config = chars, render_mode, config
-        self.robot = Panda(config.timestep, config.brush)
+        self.robot = RebotArm(config.timestep, config.brush, config.robot)
         self.model, self.data = self.robot.model, self.robot.data
         self.action_space = gym.spaces.Box(-1, 1, (ACTIONS,), dtype=np.float32)
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, (OBSERVATIONS,), dtype=np.float32)
@@ -114,8 +113,8 @@ class ShodoEnv(gym.Env):
             (target - self.tracking_pose) / self.scales,
             (self.command - pose) / self.scales,
             (preview - target) / self.scales,
-            self.data.qpos[:7] / 3,
-            self.data.qvel[:7] / 5,
+            self.robot.joint_positions / 3,
+            self.robot.joint_velocities / 5,
             self.brush.force,
             self.brush.deflection / 0.004,
             self.target_force[i],
@@ -167,6 +166,10 @@ class ShodoEnv(gym.Env):
         self.peak_force = 0.0
         self.force_impulse = np.zeros(3)
         self.peak_torque_fraction = 0.0
+        self.peak_joint_speed = np.zeros(6)
+        self.peak_joint_torque = np.zeros(6)
+        self.forbidden_contact_steps = 0
+        self.min_joint_margin = np.inf
         self.done = False
         return self._obs(), {"char": self.char}
 
@@ -195,7 +198,7 @@ class ShodoEnv(gym.Env):
         self.last_requested_action = action.copy()
         self.command, self.last_applied_action = self.action_contract.apply(self.command, action)
         action = np.clip(action, -1, 1)
-        self.robot.q_target = self.robot.inverse(self.command[:3], self.command[3:])
+        self.robot.set_target(self.robot.inverse(self.command[:3], self.command[3:]))
         cfg = self.config
         deposits, masses = [], []
         for _ in range(cfg.substeps):
@@ -207,12 +210,32 @@ class ShodoEnv(gym.Env):
                     self.tip, self.robot.rotation, cfg.timestep, cfg.paper_z
                 )
                 self.robot.step(force, torque)
+            self.peak_joint_speed = np.maximum(self.peak_joint_speed, np.abs(self.data.qvel[:6]))
+            self.peak_joint_torque = np.maximum(
+                self.peak_joint_torque, np.abs(self.data.actuator_force)
+            )
+            self.forbidden_contact_steps += int(self.robot.forbidden_contacts() > 0)
+            self.min_joint_margin = min(
+                self.min_joint_margin,
+                float(
+                    np.min(
+                        np.minimum(
+                            self.data.qpos[:6] - self.model.jnt_range[:6, 0],
+                            self.model.jnt_range[:6, 1] - self.data.qpos[:6],
+                        )
+                    )
+                ),
+            )
             self.peak_force = max(self.peak_force, float(self.brush.force[2]))
             if cfg.record:
                 self.force_impulse += self.brush.force * cfg.timestep
                 self.peak_torque_fraction = max(
                     self.peak_torque_fraction,
-                    float(np.max(np.abs(self.data.ctrl) / self.model.actuator_ctrlrange[:, 1])),
+                    float(
+                        np.max(
+                            np.abs(self.data.actuator_force) / self.model.actuator_forcerange[:, 1]
+                        )
+                    ),
                 )
             load = self.brush.ink_loads
             total = load.sum()
@@ -232,8 +255,10 @@ class ShodoEnv(gym.Env):
         self.ink_clock += cfg.dt
         truncated = bool(
             not np.isfinite(self.data.qpos).all()
-            or np.linalg.norm(self.data.qvel[:7]) > 100
-            or self.peak_force > 8.0
+            or np.max(self.peak_joint_speed) > 1.5 * cfg.robot.joint_speed
+            or self.forbidden_contact_steps > 0
+            or self.min_joint_margin < 0
+            or self.peak_force > 2.0
             or (self.data.warning.number > 0).any()
         )
         if (
@@ -248,7 +273,7 @@ class ShodoEnv(gym.Env):
         angular = float(np.linalg.norm(self.pose[3:] - self.tilts[self.index]))
         force_error = float(self.brush.force[2] - self.target_force[self.index])
         torque_fraction = float(
-            np.max(np.abs(self.data.ctrl) / self.model.actuator_ctrlrange[:, 1])
+            np.max(np.abs(self.data.actuator_force) / self.model.actuator_forcerange[:, 1])
         )
         reward = float(
             0.65 * np.exp(-((error / 0.008) ** 2))
@@ -261,7 +286,7 @@ class ShodoEnv(gym.Env):
                 np.r_[
                     self.tip,
                     self.path[self.index],
-                    self.data.qpos[:7],
+                    self.robot.joint_positions,
                     self.stroke_ids[self.index],
                     self.brush.force[2],
                     self.target_force[self.index],
@@ -270,6 +295,10 @@ class ShodoEnv(gym.Env):
                     torque_fraction,
                     self.paper.mobile.sum() + self.paper.fixed.sum(),
                     tracked[:2],
+                    self.data.qvel[:6],
+                    self.robot.q_command,
+                    self.robot.v_command,
+                    self.data.actuator_force,
                 ]
             )
         self.index += 1

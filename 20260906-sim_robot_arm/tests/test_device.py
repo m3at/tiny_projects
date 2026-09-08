@@ -2,9 +2,11 @@ import numpy as np
 import pytest
 import torch
 
+from shodo.config import SimConfig
 from shodo.device import resolve_device
 from shodo.env import ACTIONS, OBSERVATION_VERSION, OBSERVATIONS
 from shodo.learning import load_policy, network, train
+from shodo.rebot import ROBOT_CONTRACT
 
 
 def test_explicit_cpu_does_not_initialize_accelerator_detection(monkeypatch):
@@ -41,7 +43,12 @@ def test_explicit_unavailable_accelerator_fails_before_training_output(
 def test_cpu_checkpoint_loads_on_selected_device_and_returns_numpy(tmp_path):
     checkpoint = tmp_path / "bc.pt"
     torch.save(
-        {"state_dict": network().state_dict(), "observation_version": OBSERVATION_VERSION},
+        {
+            "state_dict": network().state_dict(),
+            "observation_version": OBSERVATION_VERSION,
+            "robot_contract": ROBOT_CONTRACT,
+            "robot_config": SimConfig().to_dict()["robot"],
+        },
         checkpoint,
     )
     observation = np.zeros(OBSERVATIONS, dtype=np.float32)

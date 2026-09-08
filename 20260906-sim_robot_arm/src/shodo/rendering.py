@@ -68,7 +68,7 @@ class Renderer:
         canvas.paste(Image.fromarray(rgb), (0, 0))
         canvas.paste(paper.resize((300, 300)), (650, 95))
         draw = ImageDraw.Draw(canvas)
-        draw.text((18, 18), "FRANKA PANDA / ELASTIC BRUSH", fill="white")
+        draw.text((18, 18), "reBot B601-RS / VERTICAL BRUSH", fill="white")
         draw.text((650, 65), "WATER + PIGMENT / FIBROUS PAPER", fill="white")
         draw.text(
             (650, 410),

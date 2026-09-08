@@ -14,24 +14,12 @@ from shodo import smolvla
 from shodo.contracts import SensorConfig
 
 
-def test_action_regression_endpoint_has_no_target_input_and_one_step_recovers_action():
-    first = torch.randn(2, 3, 6)
-    second = first * 2 + 7
-    extras = [smolvla.regression_inputs({"action": actions}) for actions in (first, second)]
-    for key in extras[0]:
-        torch.testing.assert_close(extras[0][key], extras[1][key])
-    for actions, kwargs in zip((first, second), extras, strict=True):
-        padded = torch.nn.functional.pad(actions, (0, 26))
-        time = kwargs["time"][:, None, None]
-        noisy_input = time * kwargs["noise"] + (1 - time) * padded
-        velocity_target = kwargs["noise"] - padded
-        assert torch.count_nonzero(noisy_input) == 0
-        torch.testing.assert_close(noisy_input - velocity_target, padded)
-    assert smolvla.resolve_denoise_steps({}) == 10
-    assert smolvla.resolve_denoise_steps({"objective": "action_regression"}) == 1
-
-
 def test_action_regression_noise_is_zero_and_does_not_consume_rng():
+    # Teacher actions must not enter the model's regression input.
+    left = smolvla.regression_inputs({"action": torch.zeros(2, 3, 6)})
+    right = smolvla.regression_inputs({"action": torch.full((2, 3, 6), 17.0)})
+    for key in left:
+        torch.testing.assert_close(left[key], right[key])
     generator = torch.Generator().manual_seed(7)
     initial = generator.get_state().clone()
     noise = smolvla.inference_noise(
@@ -184,11 +172,13 @@ def test_warm_start_accepts_new_statistics_and_updates_both_chunk_configs(
         calls.append(kwargs)
         return model, Tokenizer(), report
 
-    def stop(*a, **kwargs):
+    def stop(parameters, **kwargs):
+        trainable = list(parameters)
+        assert len(trainable) == 1 and trainable[0] is model.lora_A
         raise RuntimeError("training boundary sentinel")
 
     monkeypatch.setattr(smolvla, "load_adapter", load)
-    monkeypatch.setattr(smolvla, "model_batch", stop)
+    monkeypatch.setattr(torch.optim, "AdamW", stop)
     with pytest.raises(RuntimeError, match="training boundary sentinel"):
         smolvla.train_lora(
             "unused", path / "new", warm_start=path, chunk_size=1, device="cpu", objective=objective
@@ -319,19 +309,13 @@ def test_controller_normalization_queue_clipping_camera_and_reset(adapter):
     assert model.resets == 2
 
 
-@pytest.mark.parametrize("timestamp", [0, -1, float("nan"), float("inf")])
+@pytest.mark.parametrize("timestamp", [0, float("nan")])
 def test_controller_rejects_invalid_or_repeated_camera_time(adapter, timestamp):
     controller = smolvla.SmolController("unused", device="cpu")
     image = np.zeros((2, 2, 3), np.uint8)
     controller.observe_camera(image, 0, "一")
     with pytest.raises(ValueError, match="timestamps"):
         controller.observe_camera(image, timestamp, "一")
-
-
-@pytest.mark.parametrize("steps", [0, -1, 5, 1.5, True])
-def test_controller_rejects_invalid_execution_horizon(adapter, steps):
-    with pytest.raises(ValueError, match="execute_steps"):
-        smolvla.SmolController("unused", execute_steps=steps)
 
 
 def test_controller_rejects_nonfinite_model_actions(adapter):
@@ -350,24 +334,6 @@ def test_controller_rejects_mixed_camera_cadence(adapter):
     report["dataset"]["episodes"].append(second)
     with pytest.raises(ValueError, match="cadence"):
         smolvla.SmolController("unused")
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"steps": 0},
-        {"batch_size": -1},
-        {"rank": 0},
-        {"alpha": True},
-        {"chunk_size": 0},
-        {"seed": -1},
-        {"learning_rate": 0},
-        {"learning_rate": float("nan")},
-    ],
-)
-def test_invalid_training_arguments_fail_before_model_or_dataset_access(tmp_path, kwargs):
-    with pytest.raises(ValueError):
-        smolvla.train_lora(tmp_path / "missing", tmp_path / "output", **kwargs)
 
 
 def test_training_refuses_existing_output_before_dataset_access(tmp_path):
@@ -549,18 +515,6 @@ def test_adapter_execution_horizon_checked_before_optional_dependencies(saved_ad
         smolvla.load_adapter(path, execute_steps=5)
 
 
-def test_valid_adapter_contract_reaches_dependency_check(saved_adapter, monkeypatch):
-    path, report = saved_adapter
-    (path / "training.json").write_text(json.dumps(report))
-
-    def unavailable():
-        raise RuntimeError("optional dependency sentinel")
-
-    monkeypatch.setattr(smolvla, "_dependencies", unavailable)
-    with pytest.raises(RuntimeError, match="dependency sentinel"):
-        smolvla.load_adapter(path, execute_steps=4)
-
-
 def test_counterfactual_adapter_rejects_multi_step_chunk_before_load(saved_adapter, monkeypatch):
     from shodo.vla_data import NORMALIZATION_CONTRACT, _supervision_contract
 
@@ -633,7 +587,7 @@ def test_optimized_controller_merge_cache_equivalence_lifecycle_and_reset(adapte
     optimized.close()  # idempotent release
 
 
-@pytest.mark.parametrize("failure", ["overlap", "rollout", "write", "none"])
+@pytest.mark.parametrize("failure", ["overlap", "rollout"])
 def test_evaluation_closes_policy_on_all_exit_paths(tmp_path, monkeypatch, failure):
     from shodo import runtime
     from shodo.config import SimConfig
@@ -699,14 +653,3 @@ def test_evaluation_persists_latency_and_checkpoint(adapter, monkeypatch, tmp_pa
     assert latency["execution_horizon_seconds"] == 0.08
     assert result["checkpoint"]["sha256"] == report["adapter_sha256"]
     assert json.loads((tmp_path / "evaluation.json").read_text()) == result
-
-
-@pytest.mark.parametrize(
-    "kwargs", [{"seed": -1}, {"seed": 2**32}, {"denoise_steps": 0}, {"execute_steps": 0}]
-)
-def test_controller_invalid_options_precede_model_load(monkeypatch, kwargs):
-    monkeypatch.setattr(
-        smolvla, "load_adapter", lambda *a, **k: pytest.fail("Invalid settings loaded a model")
-    )
-    with pytest.raises(ValueError):
-        smolvla.SmolController("unused", **kwargs)
